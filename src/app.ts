@@ -5,7 +5,10 @@ import morgan from 'morgan';
 import config from './config';
 import logger from './utils/logger';
 import { errorHandler, notFoundHandler } from './middleware/errorHandler';
+// Idempotency middleware is applied per route where needed
 import paymentRoutes from './routes/payments';
+import subscriptionRoutes from './routes/subscriptions';
+import webhookRoutes from './routes/webhooks';
 
 const app = express();
 
@@ -16,8 +19,16 @@ app.use(helmet());
 app.use(cors({
   origin: process.env.ALLOWED_ORIGINS?.split(',') || ['http://localhost:3000', 'http://localhost:3001'],
   credentials: true,
-  methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
-  allowedHeaders: ['Content-Type', 'Authorization', 'X-Requested-With'],
+  methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
+  allowedHeaders: [
+    'Content-Type', 
+    'Authorization', 
+    'X-Requested-With',
+    'Idempotency-Key',
+    'X-Webhook-Signature',
+    'X-Webhook-Event-Type',
+    'X-Webhook-Event-ID'
+  ],
 }));
 
 // Request parsing middleware
@@ -41,19 +52,33 @@ app.use((req, res, next) => {
   next();
 });
 
-// Health check endpoint
+// Health check endpoint with enhanced information
 app.get('/health', (_req, res) => {
   res.status(200).json({
     success: true,
-    message: 'Server is healthy',
+    message: 'Payment Processing API is healthy',
     timestamp: new Date(),
     version: process.env.npm_package_version || '1.0.0',
     environment: config.nodeEnv,
+    services: {
+      payments: 'operational',
+      subscriptions: 'operational',
+      webhooks: 'operational',
+      idempotency: 'operational'
+    },
+    features: {
+      payment_processing: true,
+      recurring_billing: true,
+      webhook_delivery: true,
+      idempotency_support: true
+    }
   });
 });
 
 // API routes
 app.use('/api/payments', paymentRoutes);
+app.use('/api/subscriptions', subscriptionRoutes);
+app.use('/api/webhooks', webhookRoutes);
 
 // 404 handler
 app.use(notFoundHandler);

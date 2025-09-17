@@ -55,7 +55,6 @@ export const paymentRequestSchema = Joi.object({
 });
 
 export const refundRequestSchema = Joi.object({
-  transactionId: Joi.string().required(),
   amount: Joi.number().positive().precision(2).optional(),
   reason: Joi.string().max(255).optional(),
 });
@@ -113,12 +112,10 @@ export const authorizeRequestSchema = Joi.object({
 });
 
 export const captureRequestSchema = Joi.object({
-  transactionId: Joi.string().required(),
   amount: Joi.number().positive().precision(2).optional(),
 });
 
 export const voidRequestSchema = Joi.object({
-  transactionId: Joi.string().required(),
   reason: Joi.string().max(255).optional(),
 });
 
