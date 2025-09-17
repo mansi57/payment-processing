@@ -1,0 +1,447 @@
+{
+  "info": {
+    "name": "Payment Processing API",
+    "description": "Complete Postman collection for testing Authorize.Net payment integration with all core payment flows",
+    "version": "1.0.0",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "item": [
+    {
+      "name": "Health Check",
+      "item": [
+        {
+          "name": "Health Check",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/api/payments/health",
+              "host": ["{{base_url}}"],
+              "path": ["api", "payments", "health"]
+            },
+            "description": "Check if the payment service is running and healthy"
+          },
+          "response": []
+        }
+      ]
+    },
+    {
+      "name": "Payment Flows",
+      "item": [
+        {
+          "name": "1. Purchase Payment (Auth + Capture)",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"amount\": 29.99,\n  \"currency\": \"USD\",\n  \"customerInfo\": {\n    \"firstName\": \"John\",\n    \"lastName\": \"Doe\",\n    \"email\": \"john.doe@example.com\",\n    \"phone\": \"+1234567890\",\n    \"address\": {\n      \"street\": \"123 Main St\",\n      \"city\": \"Anytown\",\n      \"state\": \"CA\",\n      \"zipCode\": \"12345\",\n      \"country\": \"US\"\n    }\n  },\n  \"paymentMethod\": {\n    \"type\": \"credit_card\",\n    \"cardNumber\": \"4111111111111111\",\n    \"expirationDate\": \"1225\",\n    \"cvv\": \"123\"\n  },\n  \"description\": \"Product purchase - Test transaction\",\n  \"orderId\": \"ORDER-{{$randomInt}}\",\n  \"metadata\": {\n    \"productId\": \"PROD-456\",\n    \"customerType\": \"premium\"\n  }\n}"
+            },
+            "url": {
+              "raw": "{{base_url}}/api/payments/purchase",
+              "host": ["{{base_url}}"],
+              "path": ["api", "payments", "purchase"]
+            },
+            "description": "Process a complete payment (authorization + capture in one step)"
+          },
+          "response": []
+        },
+        {
+          "name": "2. Authorize Payment Only",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"amount\": 49.99,\n  \"customerInfo\": {\n    \"firstName\": \"Jane\",\n    \"lastName\": \"Smith\",\n    \"email\": \"jane.smith@example.com\",\n    \"phone\": \"+1987654321\",\n    \"address\": {\n      \"street\": \"456 Oak Ave\",\n      \"city\": \"Somewhere\",\n      \"state\": \"NY\",\n      \"zipCode\": \"67890\",\n      \"country\": \"US\"\n    }\n  },\n  \"paymentMethod\": {\n    \"type\": \"credit_card\",\n    \"cardNumber\": \"5555555555554444\",\n    \"expirationDate\": \"0626\",\n    \"cvv\": \"456\"\n  },\n  \"description\": \"Authorization only - Test transaction\",\n  \"orderId\": \"AUTH-{{$randomInt}}\"\n}"
+            },
+            "url": {
+              "raw": "{{base_url}}/api/payments/authorize",
+              "host": ["{{base_url}}"],
+              "path": ["api", "payments", "authorize"]
+            },
+            "description": "Authorize payment without capturing (hold funds)"
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "if (pm.response.code === 200) {",
+                  "    const response = pm.response.json();",
+                  "    if (response.success && response.data && response.data.transactionId) {",
+                  "        pm.environment.set('auth_transaction_id', response.data.transactionId);",
+                  "        console.log('Saved transaction ID for capture: ' + response.data.transactionId);",
+                  "    }",
+                  "}"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ]
+        },
+        {
+          "name": "3. Capture Authorized Payment",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"amount\": 49.99\n}"
+            },
+            "url": {
+              "raw": "{{base_url}}/api/payments/capture/{{auth_transaction_id}}",
+              "host": ["{{base_url}}"],
+              "path": ["api", "payments", "capture", "{{auth_transaction_id}}"]
+            },
+            "description": "Capture a previously authorized payment (use transaction ID from authorize step)"
+          },
+          "response": []
+        },
+        {
+          "name": "4. Refund Payment (Full)",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"reason\": \"Customer requested refund\"\n}"
+            },
+            "url": {
+              "raw": "{{base_url}}/api/payments/refund/{{transaction_id_to_refund}}",
+              "host": ["{{base_url}}"],
+              "path": ["api", "payments", "refund", "{{transaction_id_to_refund}}"]
+            },
+            "description": "Process a full refund (replace {{transaction_id_to_refund}} with actual transaction ID)"
+          },
+          "response": []
+        },
+        {
+          "name": "5. Refund Payment (Partial)",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"amount\": 15.00,\n  \"reason\": \"Partial refund for damaged item\"\n}"
+            },
+            "url": {
+              "raw": "{{base_url}}/api/payments/refund/{{transaction_id_to_refund}}",
+              "host": ["{{base_url}}"],
+              "path": ["api", "payments", "refund", "{{transaction_id_to_refund}}"]
+            },
+            "description": "Process a partial refund (replace {{transaction_id_to_refund}} with actual transaction ID)"
+          },
+          "response": []
+        },
+        {
+          "name": "6. Void Payment",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"reason\": \"Order cancelled by customer\"\n}"
+            },
+            "url": {
+              "raw": "{{base_url}}/api/payments/void/{{transaction_id_to_void}}",
+              "host": ["{{base_url}}"],
+              "path": ["api", "payments", "void", "{{transaction_id_to_void}}"]
+            },
+            "description": "Void/cancel a payment before settlement (replace {{transaction_id_to_void}} with actual transaction ID)"
+          },
+          "response": []
+        }
+      ]
+    },
+    {
+      "name": "Bank Account Payments",
+      "item": [
+        {
+          "name": "Purchase with Bank Account (ACH)",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"amount\": 75.50,\n  \"currency\": \"USD\",\n  \"customerInfo\": {\n    \"firstName\": \"Robert\",\n    \"lastName\": \"Johnson\",\n    \"email\": \"robert.johnson@example.com\",\n    \"phone\": \"+1555123456\",\n    \"address\": {\n      \"street\": \"789 Pine St\",\n      \"city\": \"Testville\",\n      \"state\": \"TX\",\n      \"zipCode\": \"54321\",\n      \"country\": \"US\"\n    }\n  },\n  \"paymentMethod\": {\n    \"type\": \"bank_account\",\n    \"accountNumber\": \"123456789\",\n    \"routingNumber\": \"121042882\",\n    \"accountType\": \"checking\"\n  },\n  \"description\": \"ACH payment - Test transaction\",\n  \"orderId\": \"ACH-{{$randomInt}}\"\n}"
+            },
+            "url": {
+              "raw": "{{base_url}}/api/payments/purchase",
+              "host": ["{{base_url}}"],
+              "path": ["api", "payments", "purchase"]
+            },
+            "description": "Process payment using bank account (ACH)"
+          },
+          "response": []
+        }
+      ]
+    },
+    {
+      "name": "Test Credit Cards",
+      "item": [
+        {
+          "name": "Visa Test Card",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"amount\": 10.00,\n  \"customerInfo\": {\n    \"firstName\": \"Test\",\n    \"lastName\": \"Visa\",\n    \"email\": \"test@visa.com\"\n  },\n  \"paymentMethod\": {\n    \"type\": \"credit_card\",\n    \"cardNumber\": \"4111111111111111\",\n    \"expirationDate\": \"1225\",\n    \"cvv\": \"123\"\n  },\n  \"description\": \"Visa test card transaction\",\n  \"orderId\": \"VISA-{{$randomInt}}\"\n}"
+            },
+            "url": {
+              "raw": "{{base_url}}/api/payments/purchase",
+              "host": ["{{base_url}}"],
+              "path": ["api", "payments", "purchase"]
+            },
+            "description": "Test with Visa card (4111111111111111)"
+          },
+          "response": []
+        },
+        {
+          "name": "Mastercard Test Card",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"amount\": 15.00,\n  \"customerInfo\": {\n    \"firstName\": \"Test\",\n    \"lastName\": \"Mastercard\",\n    \"email\": \"test@mastercard.com\"\n  },\n  \"paymentMethod\": {\n    \"type\": \"credit_card\",\n    \"cardNumber\": \"5555555555554444\",\n    \"expirationDate\": \"0626\",\n    \"cvv\": \"456\"\n  },\n  \"description\": \"Mastercard test card transaction\",\n  \"orderId\": \"MC-{{$randomInt}}\"\n}"
+            },
+            "url": {
+              "raw": "{{base_url}}/api/payments/purchase",
+              "host": ["{{base_url}}"],
+              "path": ["api", "payments", "purchase"]
+            },
+            "description": "Test with Mastercard (5555555555554444)"
+          },
+          "response": []
+        },
+        {
+          "name": "American Express Test Card",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"amount\": 20.00,\n  \"customerInfo\": {\n    \"firstName\": \"Test\",\n    \"lastName\": \"Amex\",\n    \"email\": \"test@amex.com\"\n  },\n  \"paymentMethod\": {\n    \"type\": \"credit_card\",\n    \"cardNumber\": \"378282246310005\",\n    \"expirationDate\": \"0727\",\n    \"cvv\": \"1234\"\n  },\n  \"description\": \"American Express test card transaction\",\n  \"orderId\": \"AMEX-{{$randomInt}}\"\n}"
+            },
+            "url": {
+              "raw": "{{base_url}}/api/payments/purchase",
+              "host": ["{{base_url}}"],
+              "path": ["api", "payments", "purchase"]
+            },
+            "description": "Test with American Express card (378282246310005)"
+          },
+          "response": []
+        },
+        {
+          "name": "Discover Test Card",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"amount\": 12.50,\n  \"customerInfo\": {\n    \"firstName\": \"Test\",\n    \"lastName\": \"Discover\",\n    \"email\": \"test@discover.com\"\n  },\n  \"paymentMethod\": {\n    \"type\": \"credit_card\",\n    \"cardNumber\": \"6011111111111117\",\n    \"expirationDate\": \"0828\",\n    \"cvv\": \"789\"\n  },\n  \"description\": \"Discover test card transaction\",\n  \"orderId\": \"DISC-{{$randomInt}}\"\n}"
+            },
+            "url": {
+              "raw": "{{base_url}}/api/payments/purchase",
+              "host": ["{{base_url}}"],
+              "path": ["api", "payments", "purchase"]
+            },
+            "description": "Test with Discover card (6011111111111117)"
+          },
+          "response": []
+        }
+      ]
+    },
+    {
+      "name": "Error Testing",
+      "item": [
+        {
+          "name": "Invalid Card Number",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"amount\": 5.00,\n  \"customerInfo\": {\n    \"firstName\": \"Test\",\n    \"lastName\": \"Error\",\n    \"email\": \"test@error.com\"\n  },\n  \"paymentMethod\": {\n    \"type\": \"credit_card\",\n    \"cardNumber\": \"1234567890123456\",\n    \"expirationDate\": \"1225\",\n    \"cvv\": \"123\"\n  },\n  \"description\": \"Invalid card test\"\n}"
+            },
+            "url": {
+              "raw": "{{base_url}}/api/payments/purchase",
+              "host": ["{{base_url}}"],
+              "path": ["api", "payments", "purchase"]
+            },
+            "description": "Test with invalid card number to see error handling"
+          },
+          "response": []
+        },
+        {
+          "name": "Missing Required Fields",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"amount\": 10.00\n}"
+            },
+            "url": {
+              "raw": "{{base_url}}/api/payments/purchase",
+              "host": ["{{base_url}}"],
+              "path": ["api", "payments", "purchase"]
+            },
+            "description": "Test validation by sending incomplete data"
+          },
+          "response": []
+        },
+        {
+          "name": "Invalid Transaction ID",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"reason\": \"Testing invalid transaction ID\"\n}"
+            },
+            "url": {
+              "raw": "{{base_url}}/api/payments/void/invalid-transaction-id",
+              "host": ["{{base_url}}"],
+              "path": ["api", "payments", "void", "invalid-transaction-id"]
+            },
+            "description": "Test void with invalid transaction ID"
+          },
+          "response": []
+        }
+      ]
+    }
+  ],
+  "event": [
+    {
+      "listen": "prerequest",
+      "script": {
+        "type": "text/javascript",
+        "exec": [
+          "// Set common headers and log request",
+          "console.log('Making request to: ' + pm.request.url.toString());"
+        ]
+      }
+    },
+    {
+      "listen": "test",
+      "script": {
+        "type": "text/javascript",
+        "exec": [
+          "// Common tests for all requests",
+          "pm.test('Response time is less than 5000ms', function () {",
+          "    pm.expect(pm.response.responseTime).to.be.below(5000);",
+          "});",
+          "",
+          "pm.test('Response has proper JSON structure', function () {",
+          "    pm.response.to.have.jsonBody();",
+          "    const response = pm.response.json();",
+          "    pm.expect(response).to.have.property('success');",
+          "    pm.expect(response).to.have.property('message');",
+          "});",
+          "",
+          "// Log response for debugging",
+          "console.log('Response Status:', pm.response.code);",
+          "console.log('Response Body:', JSON.stringify(pm.response.json(), null, 2));"
+        ]
+      }
+    }
+  ],
+  "variable": [
+    {
+      "key": "base_url",
+      "value": "http://localhost:3000",
+      "description": "Base URL for the payment processing API"
+    },
+    {
+      "key": "auth_transaction_id",
+      "value": "",
+      "description": "Transaction ID from authorization (auto-populated)"
+    },
+    {
+      "key": "transaction_id_to_refund",
+      "value": "",
+      "description": "Replace with actual transaction ID for refund testing"
+    },
+    {
+      "key": "transaction_id_to_void",
+      "value": "",
+      "description": "Replace with actual transaction ID for void testing"
+    }
+  ]
+}
+
+
