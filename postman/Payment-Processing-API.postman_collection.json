@@ -1,7 +1,7 @@
 {
   "info": {
-    "name": "Payment Processing API",
-    "description": "Complete Postman collection for testing Authorize.Net payment integration with all core payment flows",
+    "name": "Payment Processing API (Legacy)",
+    "description": "Basic Postman collection for core payment flows. For advanced features including subscriptions, webhooks, and idempotency, use 'Advanced-Payment-Processing-API.postman_collection.json'",
     "version": "1.0.0",
     "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
   },

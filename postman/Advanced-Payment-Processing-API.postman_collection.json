@@ -1,0 +1,920 @@
+{
+  "info": {
+    "name": "Advanced Payment Processing API",
+    "description": "Complete Postman collection for testing the advanced payment processing system with subscriptions, webhooks, and idempotency",
+    "version": "2.0.0",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "variable": [
+    {
+      "key": "base_url",
+      "value": "http://localhost:3000",
+      "type": "string"
+    },
+    {
+      "key": "plan_id",
+      "value": "",
+      "type": "string"
+    },
+    {
+      "key": "subscription_id",
+      "value": "",
+      "type": "string"
+    },
+    {
+      "key": "webhook_endpoint_id",
+      "value": "",
+      "type": "string"
+    },
+    {
+      "key": "transaction_id",
+      "value": "",
+      "type": "string"
+    },
+    {
+      "key": "idempotency_key",
+      "value": "",
+      "type": "string"
+    }
+  ],
+  "item": [
+    {
+      "name": "🏥 Health Checks",
+      "item": [
+        {
+          "name": "System Health Check",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/health",
+              "host": ["{{base_url}}"],
+              "path": ["health"]
+            },
+            "description": "Check overall system health with all services status"
+          },
+          "response": []
+        },
+        {
+          "name": "Payment Service Health",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/api/payments/health",
+              "host": ["{{base_url}}"],
+              "path": ["api", "payments", "health"]
+            },
+            "description": "Check payment service specific health"
+          },
+          "response": []
+        },
+        {
+          "name": "Subscription Service Health",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/api/subscriptions/health",
+              "host": ["{{base_url}}"],
+              "path": ["api", "subscriptions", "health"]
+            },
+            "description": "Check subscription service health"
+          },
+          "response": []
+        },
+        {
+          "name": "Webhook Service Health",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/api/webhooks/health",
+              "host": ["{{base_url}}"],
+              "path": ["api", "webhooks", "health"]
+            },
+            "description": "Check webhook service health"
+          },
+          "response": []
+        }
+      ]
+    },
+    {
+      "name": "💳 Payment Processing",
+      "item": [
+        {
+          "name": "1. Purchase Payment",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "if (pm.response.code === 200) {",
+                  "    const response = pm.response.json();",
+                  "    if (response.data && response.data.transactionId) {",
+                  "        pm.collectionVariables.set('transaction_id', response.data.transactionId);",
+                  "        console.log('Saved transaction ID:', response.data.transactionId);",
+                  "    }",
+                  "}"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"amount\": 49.99,\n  \"currency\": \"USD\",\n  \"customerInfo\": {\n    \"firstName\": \"John\",\n    \"lastName\": \"Doe\",\n    \"email\": \"john.doe@example.com\",\n    \"phone\": \"+1234567890\",\n    \"address\": {\n      \"street\": \"123 Main St\",\n      \"city\": \"Anytown\",\n      \"state\": \"CA\",\n      \"zipCode\": \"12345\",\n      \"country\": \"US\"\n    }\n  },\n  \"paymentMethod\": {\n    \"type\": \"credit_card\",\n    \"cardNumber\": \"4111111111111111\",\n    \"expirationDate\": \"1225\",\n    \"cvv\": \"123\"\n  },\n  \"description\": \"Product purchase - Test transaction\",\n  \"orderId\": \"ORDER-{{$randomInt}}\",\n  \"metadata\": {\n    \"productId\": \"PROD-456\",\n    \"customerType\": \"premium\"\n  }\n}"
+            },
+            "url": {
+              "raw": "{{base_url}}/api/payments/purchase",
+              "host": ["{{base_url}}"],
+              "path": ["api", "payments", "purchase"]
+            },
+            "description": "Process a complete payment (authorization + capture)"
+          },
+          "response": []
+        },
+        {
+          "name": "2. Authorize Payment",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "if (pm.response.code === 200) {",
+                  "    const response = pm.response.json();",
+                  "    if (response.data && response.data.transactionId) {",
+                  "        pm.collectionVariables.set('transaction_id', response.data.transactionId);",
+                  "        console.log('Saved authorization transaction ID:', response.data.transactionId);",
+                  "    }",
+                  "}"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"amount\": 75.00,\n  \"customerInfo\": {\n    \"firstName\": \"Jane\",\n    \"lastName\": \"Smith\",\n    \"email\": \"jane.smith@example.com\"\n  },\n  \"paymentMethod\": {\n    \"type\": \"credit_card\",\n    \"cardNumber\": \"4111111111111111\",\n    \"expirationDate\": \"1225\",\n    \"cvv\": \"123\"\n  },\n  \"description\": \"Authorization for future capture\",\n  \"orderId\": \"AUTH-{{$randomInt}}\"\n}"
+            },
+            "url": {
+              "raw": "{{base_url}}/api/payments/authorize",
+              "host": ["{{base_url}}"],
+              "path": ["api", "payments", "authorize"]
+            },
+            "description": "Authorize a payment (hold funds without capturing)"
+          },
+          "response": []
+        },
+        {
+          "name": "3. Capture Payment",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"amount\": 75.00\n}"
+            },
+            "url": {
+              "raw": "{{base_url}}/api/payments/capture/{{transaction_id}}",
+              "host": ["{{base_url}}"],
+              "path": ["api", "payments", "capture", "{{transaction_id}}"]
+            },
+            "description": "Capture a previously authorized payment"
+          },
+          "response": []
+        },
+        {
+          "name": "4. Refund Payment",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"amount\": 25.00,\n  \"reason\": \"Customer requested partial refund\"\n}"
+            },
+            "url": {
+              "raw": "{{base_url}}/api/payments/refund/{{transaction_id}}",
+              "host": ["{{base_url}}"],
+              "path": ["api", "payments", "refund", "{{transaction_id}}"]
+            },
+            "description": "Refund a completed payment (full or partial)"
+          },
+          "response": []
+        },
+        {
+          "name": "5. Void Payment",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"reason\": \"Order cancelled by customer\"\n}"
+            },
+            "url": {
+              "raw": "{{base_url}}/api/payments/void/{{transaction_id}}",
+              "host": ["{{base_url}}"],
+              "path": ["api", "payments", "void", "{{transaction_id}}"]
+            },
+            "description": "Void an authorized payment (cancel before settlement)"
+          },
+          "response": []
+        }
+      ]
+    },
+    {
+      "name": "🔒 Idempotency Testing",
+      "item": [
+        {
+          "name": "Generate Idempotency Key",
+          "event": [
+            {
+              "listen": "prerequest",
+              "script": {
+                "exec": [
+                  "// Generate a UUID for idempotency key",
+                  "const uuid = require('uuid');",
+                  "const idempotencyKey = uuid.v4();",
+                  "pm.collectionVariables.set('idempotency_key', idempotencyKey);",
+                  "console.log('Generated idempotency key:', idempotencyKey);"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/health",
+              "host": ["{{base_url}}"],
+              "path": ["health"]
+            },
+            "description": "This request generates a new idempotency key for testing"
+          },
+          "response": []
+        },
+        {
+          "name": "1. First Idempotent Request",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "if (pm.response.code === 200) {",
+                  "    const response = pm.response.json();",
+                  "    if (response.data && response.data.transactionId) {",
+                  "        pm.collectionVariables.set('transaction_id', response.data.transactionId);",
+                  "        console.log('First request - Transaction ID:', response.data.transactionId);",
+                  "    }",
+                  "}"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "Idempotency-Key",
+                "value": "{{idempotency_key}}",
+                "description": "UUID for idempotency testing"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"amount\": 99.99,\n  \"currency\": \"USD\",\n  \"customerInfo\": {\n    \"firstName\": \"Test\",\n    \"lastName\": \"Customer\",\n    \"email\": \"test@idempotency.com\"\n  },\n  \"paymentMethod\": {\n    \"type\": \"credit_card\",\n    \"cardNumber\": \"4111111111111111\",\n    \"expirationDate\": \"1225\",\n    \"cvv\": \"123\"\n  },\n  \"orderId\": \"IDEMPOTENT-TEST-001\",\n  \"description\": \"Testing idempotency - first request\"\n}"
+            },
+            "url": {
+              "raw": "{{base_url}}/api/payments/purchase",
+              "host": ["{{base_url}}"],
+              "path": ["api", "payments", "purchase"]
+            },
+            "description": "First request with idempotency key - should create new transaction"
+          },
+          "response": []
+        },
+        {
+          "name": "2. Duplicate Idempotent Request",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "Idempotency-Key",
+                "value": "{{idempotency_key}}",
+                "description": "Same UUID - should return cached response"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"amount\": 99.99,\n  \"currency\": \"USD\",\n  \"customerInfo\": {\n    \"firstName\": \"Test\",\n    \"lastName\": \"Customer\",\n    \"email\": \"test@idempotency.com\"\n  },\n  \"paymentMethod\": {\n    \"type\": \"credit_card\",\n    \"cardNumber\": \"4111111111111111\",\n    \"expirationDate\": \"1225\",\n    \"cvv\": \"123\"\n  },\n  \"orderId\": \"IDEMPOTENT-TEST-001\",\n  \"description\": \"Testing idempotency - duplicate request\"\n}"
+            },
+            "url": {
+              "raw": "{{base_url}}/api/payments/purchase",
+              "host": ["{{base_url}}"],
+              "path": ["api", "payments", "purchase"]
+            },
+            "description": "Duplicate request with same idempotency key - should return cached response"
+          },
+          "response": []
+        }
+      ]
+    },
+    {
+      "name": "📋 Subscription Plans",
+      "item": [
+        {
+          "name": "Create Basic Plan",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "if (pm.response.code === 201) {",
+                  "    const response = pm.response.json();",
+                  "    if (response.data && response.data.id) {",
+                  "        pm.collectionVariables.set('plan_id', response.data.id);",
+                  "        console.log('Saved plan ID:', response.data.id);",
+                  "    }",
+                  "}"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"name\": \"Starter Plan\",\n  \"description\": \"Perfect for individuals getting started\",\n  \"amount\": 999,\n  \"currency\": \"USD\",\n  \"interval\": \"monthly\",\n  \"intervalCount\": 1,\n  \"trialPeriodDays\": 14,\n  \"metadata\": {\n    \"tier\": \"starter\",\n    \"features\": [\"basic_analytics\", \"email_support\"]\n  }\n}"
+            },
+            "url": {
+              "raw": "{{base_url}}/api/subscriptions/plans",
+              "host": ["{{base_url}}"],
+              "path": ["api", "subscriptions", "plans"]
+            },
+            "description": "Create a new subscription plan"
+          },
+          "response": []
+        },
+        {
+          "name": "Create Premium Plan",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"name\": \"Premium Plan\",\n  \"description\": \"Advanced features for growing businesses\",\n  \"amount\": 4999,\n  \"currency\": \"USD\",\n  \"interval\": \"monthly\",\n  \"intervalCount\": 1,\n  \"trialPeriodDays\": 7,\n  \"setupFee\": 2500,\n  \"metadata\": {\n    \"tier\": \"premium\",\n    \"features\": [\"advanced_analytics\", \"priority_support\", \"api_access\"]\n  }\n}"
+            },
+            "url": {
+              "raw": "{{base_url}}/api/subscriptions/plans",
+              "host": ["{{base_url}}"],
+              "path": ["api", "subscriptions", "plans"]
+            },
+            "description": "Create a premium plan with setup fee"
+          },
+          "response": []
+        },
+        {
+          "name": "List All Plans",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/api/subscriptions/plans",
+              "host": ["{{base_url}}"],
+              "path": ["api", "subscriptions", "plans"]
+            },
+            "description": "Get all available subscription plans"
+          },
+          "response": []
+        },
+        {
+          "name": "Get Specific Plan",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/api/subscriptions/plans/{{plan_id}}",
+              "host": ["{{base_url}}"],
+              "path": ["api", "subscriptions", "plans", "{{plan_id}}"]
+            },
+            "description": "Get details of a specific plan"
+          },
+          "response": []
+        }
+      ]
+    },
+    {
+      "name": "🔄 Subscription Management",
+      "item": [
+        {
+          "name": "Create Subscription",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "if (pm.response.code === 201) {",
+                  "    const response = pm.response.json();",
+                  "    if (response.data && response.data.id) {",
+                  "        pm.collectionVariables.set('subscription_id', response.data.id);",
+                  "        console.log('Saved subscription ID:', response.data.id);",
+                  "    }",
+                  "}"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"customerId\": \"cust_default_test\",\n  \"planId\": \"{{plan_id}}\",\n  \"quantity\": 1,\n  \"trialPeriodDays\": 7,\n  \"metadata\": {\n    \"source\": \"postman_test\",\n    \"campaign\": \"holiday_promotion\"\n  }\n}"
+            },
+            "url": {
+              "raw": "{{base_url}}/api/subscriptions/subscriptions",
+              "host": ["{{base_url}}"],
+              "path": ["api", "subscriptions", "subscriptions"]
+            },
+            "description": "Create a new subscription for a customer"
+          },
+          "response": []
+        },
+        {
+          "name": "Get Subscription",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/api/subscriptions/subscriptions/{{subscription_id}}",
+              "host": ["{{base_url}}"],
+              "path": ["api", "subscriptions", "subscriptions", "{{subscription_id}}"]
+            },
+            "description": "Get subscription details"
+          },
+          "response": []
+        },
+        {
+          "name": "Update Subscription",
+          "request": {
+            "method": "PATCH",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"quantity\": 3,\n  \"metadata\": {\n    \"updated_via\": \"postman\",\n    \"update_reason\": \"scale_up\"\n  }\n}"
+            },
+            "url": {
+              "raw": "{{base_url}}/api/subscriptions/subscriptions/{{subscription_id}}",
+              "host": ["{{base_url}}"],
+              "path": ["api", "subscriptions", "subscriptions", "{{subscription_id}}"]
+            },
+            "description": "Update subscription quantity or metadata"
+          },
+          "response": []
+        },
+        {
+          "name": "Cancel Subscription (At Period End)",
+          "request": {
+            "method": "DELETE",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"cancelAtPeriodEnd\": true\n}"
+            },
+            "url": {
+              "raw": "{{base_url}}/api/subscriptions/subscriptions/{{subscription_id}}",
+              "host": ["{{base_url}}"],
+              "path": ["api", "subscriptions", "subscriptions", "{{subscription_id}}"]
+            },
+            "description": "Cancel subscription at the end of current period"
+          },
+          "response": []
+        },
+        {
+          "name": "Cancel Subscription (Immediate)",
+          "request": {
+            "method": "DELETE",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"cancelAtPeriodEnd\": false\n}"
+            },
+            "url": {
+              "raw": "{{base_url}}/api/subscriptions/subscriptions/{{subscription_id}}",
+              "host": ["{{base_url}}"],
+              "path": ["api", "subscriptions", "subscriptions", "{{subscription_id}}"]
+            },
+            "description": "Cancel subscription immediately"
+          },
+          "response": []
+        },
+        {
+          "name": "Resume Subscription",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{}"
+            },
+            "url": {
+              "raw": "{{base_url}}/api/subscriptions/subscriptions/{{subscription_id}}/resume",
+              "host": ["{{base_url}}"],
+              "path": ["api", "subscriptions", "subscriptions", "{{subscription_id}}", "resume"]
+            },
+            "description": "Resume a cancelled subscription (if cancelled at period end)"
+          },
+          "response": []
+        }
+      ]
+    },
+    {
+      "name": "📡 Webhook Management",
+      "item": [
+        {
+          "name": "Create Webhook Endpoint",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "if (pm.response.code === 201) {",
+                  "    const response = pm.response.json();",
+                  "    if (response.data && response.data.id) {",
+                  "        pm.collectionVariables.set('webhook_endpoint_id', response.data.id);",
+                  "        console.log('Saved webhook endpoint ID:', response.data.id);",
+                  "        console.log('Webhook secret:', response.data.secret);",
+                  "    }",
+                  "}"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"url\": \"https://webhook.site/#!/unique-id\",\n  \"description\": \"Test webhook endpoint for payment events\",\n  \"enabledEvents\": [\n    \"payment.succeeded\",\n    \"payment.failed\",\n    \"subscription.created\",\n    \"subscription.payment_succeeded\",\n    \"subscription.payment_failed\",\n    \"invoice.payment_succeeded\"\n  ],\n  \"metadata\": {\n    \"environment\": \"development\",\n    \"service\": \"postman_test\"\n  }\n}"
+            },
+            "url": {
+              "raw": "{{base_url}}/api/webhooks/endpoints",
+              "host": ["{{base_url}}"],
+              "path": ["api", "webhooks", "endpoints"]
+            },
+            "description": "Create a new webhook endpoint"
+          },
+          "response": []
+        },
+        {
+          "name": "List Webhook Endpoints",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/api/webhooks/endpoints",
+              "host": ["{{base_url}}"],
+              "path": ["api", "webhooks", "endpoints"]
+            },
+            "description": "Get all webhook endpoints"
+          },
+          "response": []
+        },
+        {
+          "name": "Get Webhook Endpoint",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/api/webhooks/endpoints/{{webhook_endpoint_id}}",
+              "host": ["{{base_url}}"],
+              "path": ["api", "webhooks", "endpoints", "{{webhook_endpoint_id}}"]
+            },
+            "description": "Get specific webhook endpoint details"
+          },
+          "response": []
+        },
+        {
+          "name": "Update Webhook Endpoint",
+          "request": {
+            "method": "PATCH",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"description\": \"Updated webhook endpoint for all events\",\n  \"enabledEvents\": [\n    \"payment.succeeded\",\n    \"payment.failed\",\n    \"payment.refunded\",\n    \"subscription.created\",\n    \"subscription.updated\",\n    \"subscription.canceled\"\n  ]\n}"
+            },
+            "url": {
+              "raw": "{{base_url}}/api/webhooks/endpoints/{{webhook_endpoint_id}}",
+              "host": ["{{base_url}}"],
+              "path": ["api", "webhooks", "endpoints", "{{webhook_endpoint_id}}"]
+            },
+            "description": "Update webhook endpoint configuration"
+          },
+          "response": []
+        },
+        {
+          "name": "Test Webhook Endpoint",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{}"
+            },
+            "url": {
+              "raw": "{{base_url}}/api/webhooks/endpoints/{{webhook_endpoint_id}}/test",
+              "host": ["{{base_url}}"],
+              "path": ["api", "webhooks", "endpoints", "{{webhook_endpoint_id}}", "test"]
+            },
+            "description": "Send a test event to the webhook endpoint"
+          },
+          "response": []
+        },
+        {
+          "name": "Get Webhook Endpoint Health",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/api/webhooks/endpoints/{{webhook_endpoint_id}}/health",
+              "host": ["{{base_url}}"],
+              "path": ["api", "webhooks", "endpoints", "{{webhook_endpoint_id}}", "health"]
+            },
+            "description": "Check webhook endpoint health and delivery stats"
+          },
+          "response": []
+        },
+        {
+          "name": "Delete Webhook Endpoint",
+          "request": {
+            "method": "DELETE",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/api/webhooks/endpoints/{{webhook_endpoint_id}}",
+              "host": ["{{base_url}}"],
+              "path": ["api", "webhooks", "endpoints", "{{webhook_endpoint_id}}"]
+            },
+            "description": "Delete a webhook endpoint"
+          },
+          "response": []
+        }
+      ]
+    },
+    {
+      "name": "🔐 Webhook Security",
+      "item": [
+        {
+          "name": "Generate Test Signature",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"test\": \"payload\",\n  \"amount\": 100,\n  \"event\": \"payment.succeeded\"\n}"
+            },
+            "url": {
+              "raw": "{{base_url}}/api/webhooks/generate_test_signature",
+              "host": ["{{base_url}}"],
+              "path": ["api", "webhooks", "generate_test_signature"]
+            },
+            "description": "Generate a test signature for webhook validation"
+          },
+          "response": []
+        },
+        {
+          "name": "Validate Webhook Signature",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"signature\": \"t=1695835200,v1=signature_hash_here\",\n  \"timestamp\": 1695835200\n}"
+            },
+            "url": {
+              "raw": "{{base_url}}/api/webhooks/validate_signature",
+              "host": ["{{base_url}}"],
+              "path": ["api", "webhooks", "validate_signature"]
+            },
+            "description": "Validate a webhook signature"
+          },
+          "response": []
+        }
+      ]
+    },
+    {
+      "name": "📊 Webhook Events & Deliveries",
+      "item": [
+        {
+          "name": "List Webhook Events",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/api/webhooks/events",
+              "host": ["{{base_url}}"],
+              "path": ["api", "webhooks", "events"]
+            },
+            "description": "List all webhook events"
+          },
+          "response": []
+        },
+        {
+          "name": "Get Webhook Deliveries",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/api/webhooks/endpoints/{{webhook_endpoint_id}}/deliveries",
+              "host": ["{{base_url}}"],
+              "path": ["api", "webhooks", "endpoints", "{{webhook_endpoint_id}}", "deliveries"]
+            },
+            "description": "Get delivery history for a webhook endpoint"
+          },
+          "response": []
+        },
+        {
+          "name": "Webhook Analytics",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/api/webhooks/analytics/deliveries",
+              "host": ["{{base_url}}"],
+              "path": ["api", "webhooks", "analytics", "deliveries"]
+            },
+            "description": "Get webhook delivery analytics"
+          },
+          "response": []
+        }
+      ]
+    },
+    {
+      "name": "🧪 End-to-End Testing",
+      "item": [
+        {
+          "name": "Complete Payment Flow",
+          "event": [
+            {
+              "listen": "prerequest",
+              "script": {
+                "exec": [
+                  "// Set up test data",
+                  "pm.collectionVariables.set('test_order_id', 'E2E-' + Math.floor(Math.random() * 10000));"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"amount\": 149.99,\n  \"currency\": \"USD\",\n  \"customerInfo\": {\n    \"firstName\": \"Alice\",\n    \"lastName\": \"Johnson\",\n    \"email\": \"alice@e2etest.com\",\n    \"phone\": \"+1555123456\"\n  },\n  \"paymentMethod\": {\n    \"type\": \"credit_card\",\n    \"cardNumber\": \"4111111111111111\",\n    \"expirationDate\": \"1225\",\n    \"cvv\": \"123\"\n  },\n  \"description\": \"End-to-end test purchase\",\n  \"orderId\": \"{{test_order_id}}\",\n  \"metadata\": {\n    \"test_type\": \"e2e\",\n    \"environment\": \"postman\"\n  }\n}"
+            },
+            "url": {
+              "raw": "{{base_url}}/api/payments/purchase",
+              "host": ["{{base_url}}"],
+              "path": ["api", "payments", "purchase"]
+            },
+            "description": "Complete end-to-end payment flow test"
+          },
+          "response": []
+        },
+        {
+          "name": "Complete Subscription Flow",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"customerId\": \"cust_default_test\",\n  \"planId\": \"plan_basic_monthly\",\n  \"quantity\": 1,\n  \"trialPeriodDays\": 3,\n  \"metadata\": {\n    \"test_type\": \"e2e_subscription\",\n    \"source\": \"postman\"\n  }\n}"
+            },
+            "url": {
+              "raw": "{{base_url}}/api/subscriptions/subscriptions",
+              "host": ["{{base_url}}"],
+              "path": ["api", "subscriptions", "subscriptions"]
+            },
+            "description": "Complete subscription creation and management flow"
+          },
+          "response": []
+        }
+      ]
+    }
+  ]
+}
