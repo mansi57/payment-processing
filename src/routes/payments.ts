@@ -11,7 +11,7 @@ import {
   captureRequestSchema,
   voidRequestSchema,
 } from '../utils/validation';
-import logger from '../utils/logger';
+import { logger } from '../utils/tracingLogger';
 
 const router = Router();
 
@@ -20,7 +20,10 @@ const paymentService = config.payment.useMockService
   ? new MockPaymentService() 
   : new AuthorizeNetService();
 
-logger.info(`Payment service initialized: ${config.payment.useMockService ? 'Mock Service' : 'Authorize.Net Service'}`);
+logger.info('Payment service initialized', 'payment', 'initialization', undefined, {
+  serviceType: config.payment.useMockService ? 'Mock Service' : 'Authorize.Net Service',
+  environment: config.nodeEnv,
+});
 
 /**
  * @route POST /api/payments/purchase
@@ -31,12 +34,7 @@ router.post(
   '/purchase',
   validateRequest(paymentRequestSchema),
   asyncHandler(async (req: Request, res: Response) => {
-    logger.info('Purchase request received', { 
-      amount: req.body.amount, 
-      orderId: req.body.orderId 
-    });
-
-    const result = await paymentService.processPayment(req.body);
+    const result = await paymentService.processPayment(req.body, req);
 
     res.status(200).json({
       success: true,
@@ -55,12 +53,7 @@ router.post(
   '/authorize',
   validateRequest(authorizeRequestSchema),
   asyncHandler(async (req: Request, res: Response) => {
-    logger.info('Authorization request received', { 
-      amount: req.body.amount, 
-      orderId: req.body.orderId 
-    });
-
-    const result = await paymentService.authorizePayment(req.body);
+    const result = await paymentService.authorizePayment(req.body, req);
 
     res.status(200).json({
       success: true,
@@ -86,12 +79,7 @@ router.post(
       ...req.body,
     };
 
-    logger.info('Capture request received', { 
-      transactionId,
-      amount: req.body.amount 
-    });
-
-    const result = await paymentService.capturePayment(captureData);
+    const result = await paymentService.capturePayment(captureData, req);
 
     res.status(200).json({
       success: true,
@@ -117,12 +105,7 @@ router.post(
       ...req.body,
     };
 
-    logger.info('Refund request received', { 
-      transactionId,
-      amount: req.body.amount 
-    });
-
-    const result = await paymentService.refundPayment(refundData);
+    const result = await paymentService.refundPayment(refundData, req);
 
     res.status(200).json({
       success: true,
@@ -148,9 +131,7 @@ router.post(
       ...req.body,
     };
 
-    logger.info('Void request received', { transactionId });
-
-    const result = await paymentService.voidPayment(voidData);
+    const result = await paymentService.voidPayment(voidData, req);
 
     res.status(200).json({
       success: true,
@@ -165,12 +146,17 @@ router.post(
  * @desc Health check endpoint
  * @access Public
  */
-router.get('/health', (_req: Request, res: Response) => {
+router.get('/health', (req: Request, res: Response) => {
+  logger.info('Payment service health check', 'payment', 'health', req);
+  
   res.status(200).json({
     success: true,
     message: 'Payment service is healthy',
     timestamp: new Date(),
     environment: process.env.NODE_ENV || 'development',
+    serviceType: config.payment.useMockService ? 'Mock Service' : 'Authorize.Net Service',
+    correlationId: req.tracing?.correlationId,
+    requestId: req.tracing?.requestId,
   });
 });
 

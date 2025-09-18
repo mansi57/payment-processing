@@ -1,4 +1,5 @@
-import logger from '../utils/logger';
+import { Request } from 'express';
+import { logger } from '../utils/tracingLogger';
 import {
   PaymentRequest,
   PaymentResponse,
@@ -14,11 +15,26 @@ export class MockPaymentService {
   // Store mock transactions in memory (in real app, use database)
   private transactions: Map<string, any> = new Map();
 
-  async processPayment(paymentData: PaymentRequest): Promise<PaymentResponse> {
+  constructor() {
+    logger.info('MockPaymentService initialized', 'payment', 'initialization', undefined, {
+      environment: 'mock',
+      transactionStorage: 'in-memory',
+    });
+  }
+
+  async processPayment(paymentData: PaymentRequest, req?: Request): Promise<PaymentResponse> {
+    const callId = logger.startServiceCall('payment', 'processPayment', req, {
+      amount: paymentData.amount,
+      currency: paymentData.currency || 'USD',
+      orderId: paymentData.orderId,
+      service: 'mock',
+    });
+
     try {
-      logger.info('Mock: Processing payment', { 
-        amount: paymentData.amount, 
-        orderId: paymentData.orderId 
+      logger.info('Mock: Processing payment request', 'payment', 'processPayment', req, {
+        amount: paymentData.amount,
+        currency: paymentData.currency || 'USD',
+        orderId: paymentData.orderId,
       });
 
       // Simulate payment processing
@@ -26,10 +42,22 @@ export class MockPaymentService {
 
       // Check for test failure scenarios
       if (paymentData.paymentMethod.cardNumber === '4000000000000002') {
+        logger.endServiceCall(callId, false, req, 'Card declined - test scenario');
+        logger.logPayment('purchase', paymentData.amount, paymentData.currency || 'USD', false, req, {
+          error: 'Card declined',
+          testScenario: 'decline_card',
+          orderId: paymentData.orderId,
+        });
         throw new AppError('Card declined', 400, PaymentErrorCodes.CARD_DECLINED);
       }
 
       if (paymentData.paymentMethod.cardNumber === '4000000000000069') {
+        logger.endServiceCall(callId, false, req, 'Expired card - test scenario');
+        logger.logPayment('purchase', paymentData.amount, paymentData.currency || 'USD', false, req, {
+          error: 'Expired card',
+          testScenario: 'expired_card',
+          orderId: paymentData.orderId,
+        });
         throw new AppError('Expired card', 400, PaymentErrorCodes.EXPIRED_CARD);
       }
 
@@ -50,7 +78,8 @@ export class MockPaymentService {
         createdAt: new Date(),
         description: paymentData.description,
         orderId: paymentData.orderId,
-        authCode
+        authCode,
+        correlationId: req?.tracing?.correlationId,
       });
 
       const response: PaymentResponse = {
@@ -64,9 +93,17 @@ export class MockPaymentService {
         metadata: paymentData.metadata,
       };
 
-      logger.info('Mock: Payment processed successfully', {
+      logger.endServiceCall(callId, true, req, undefined, {
         transactionId,
-        amount: paymentData.amount,
+        authCode,
+        responseCode: '1',
+      });
+
+      logger.logPayment('purchase', paymentData.amount, paymentData.currency || 'USD', true, req, {
+        transactionId,
+        orderId: paymentData.orderId,
+        authCode,
+        service: 'mock',
       });
 
       return response;
@@ -75,7 +112,14 @@ export class MockPaymentService {
         throw error;
       }
       const errorMessage = error instanceof Error ? error.message : 'Unknown error';
-      logger.error('Mock: Payment processing error', { error: errorMessage });
+      
+      logger.endServiceCall(callId, false, req, errorMessage);
+      logger.logPayment('purchase', paymentData.amount, paymentData.currency || 'USD', false, req, {
+        error: errorMessage,
+        orderId: paymentData.orderId,
+        service: 'mock',
+      });
+      
       throw new AppError(
         'Payment processing failed',
         500,
@@ -84,11 +128,17 @@ export class MockPaymentService {
     }
   }
 
-  async authorizePayment(authData: AuthorizeRequest): Promise<PaymentResponse> {
+  async authorizePayment(authData: AuthorizeRequest, req?: Request): Promise<PaymentResponse> {
+    const callId = logger.startServiceCall('payment', 'authorizePayment', req, {
+      amount: authData.amount,
+      orderId: authData.orderId,
+      service: 'mock',
+    });
+
     try {
-      logger.info('Mock: Authorizing payment', { 
-        amount: authData.amount, 
-        orderId: authData.orderId 
+      logger.info('Mock: Authorizing payment request', 'payment', 'authorizePayment', req, {
+        amount: authData.amount,
+        orderId: authData.orderId,
       });
 
       await this.simulateDelay();
@@ -109,7 +159,8 @@ export class MockPaymentService {
         createdAt: new Date(),
         description: authData.description,
         orderId: authData.orderId,
-        authCode
+        authCode,
+        correlationId: req?.tracing?.correlationId,
       });
 
       const response: PaymentResponse = {
@@ -122,15 +173,30 @@ export class MockPaymentService {
         timestamp: new Date(),
       };
 
-      logger.info('Mock: Payment authorized successfully', {
+      logger.endServiceCall(callId, true, req, undefined, {
         transactionId,
-        amount: authData.amount,
+        authCode,
+        responseCode: '1',
+      });
+
+      logger.logPayment('authorize', authData.amount, 'USD', true, req, {
+        transactionId,
+        orderId: authData.orderId,
+        authCode,
+        service: 'mock',
       });
 
       return response;
     } catch (error) {
       const errorMessage = error instanceof Error ? error.message : 'Unknown error';
-      logger.error('Mock: Authorization error', { error: errorMessage });
+      
+      logger.endServiceCall(callId, false, req, errorMessage);
+      logger.logPayment('authorize', authData.amount, 'USD', false, req, {
+        error: errorMessage,
+        orderId: authData.orderId,
+        service: 'mock',
+      });
+      
       throw new AppError(
         'Payment authorization failed',
         500,
@@ -139,21 +205,40 @@ export class MockPaymentService {
     }
   }
 
-  async capturePayment(captureData: CaptureRequest): Promise<PaymentResponse> {
+  async capturePayment(captureData: CaptureRequest, req?: Request): Promise<PaymentResponse> {
+    const callId = logger.startServiceCall('payment', 'capturePayment', req, {
+      transactionId: captureData.transactionId,
+      amount: captureData.amount,
+      service: 'mock',
+    });
+
     try {
-      logger.info('Mock: Capturing payment', { 
+      logger.info('Mock: Capturing payment request', 'payment', 'capturePayment', req, {
         transactionId: captureData.transactionId,
-        amount: captureData.amount 
+        amount: captureData.amount,
       });
 
       await this.simulateDelay();
 
       const originalTransaction = this.transactions.get(captureData.transactionId);
       if (!originalTransaction) {
+        logger.endServiceCall(callId, false, req, 'Transaction not found');
+        logger.logPayment('capture', captureData.amount || 0, 'USD', false, req, {
+          error: 'Transaction not found',
+          originalTransactionId: captureData.transactionId,
+          service: 'mock',
+        });
         throw new AppError('Transaction not found', 404, PaymentErrorCodes.TRANSACTION_NOT_FOUND);
       }
 
       if (originalTransaction.status !== 'authorized') {
+        logger.endServiceCall(callId, false, req, 'Transaction cannot be captured');
+        logger.logPayment('capture', captureData.amount || 0, 'USD', false, req, {
+          error: 'Transaction cannot be captured',
+          originalTransactionId: captureData.transactionId,
+          currentStatus: originalTransaction.status,
+          service: 'mock',
+        });
         throw new AppError('Transaction cannot be captured', 400, PaymentErrorCodes.CAPTURE_FAILED);
       }
 
@@ -172,9 +257,17 @@ export class MockPaymentService {
         timestamp: new Date(),
       };
 
-      logger.info('Mock: Payment captured successfully', {
+      logger.endServiceCall(callId, true, req, undefined, {
         transactionId: captureData.transactionId,
-        amount: response.amount,
+        authCode: originalTransaction.authCode,
+        responseCode: '1',
+      });
+
+      logger.logPayment('capture', response.amount, 'USD', true, req, {
+        transactionId: captureData.transactionId,
+        originalTransactionId: captureData.transactionId,
+        authCode: originalTransaction.authCode,
+        service: 'mock',
       });
 
       return response;
@@ -183,7 +276,14 @@ export class MockPaymentService {
         throw error;
       }
       const errorMessage = error instanceof Error ? error.message : 'Unknown error';
-      logger.error('Mock: Capture error', { error: errorMessage });
+      
+      logger.endServiceCall(callId, false, req, errorMessage);
+      logger.logPayment('capture', captureData.amount || 0, 'USD', false, req, {
+        error: errorMessage,
+        originalTransactionId: captureData.transactionId,
+        service: 'mock',
+      });
+      
       throw new AppError(
         'Payment capture failed',
         500,
@@ -192,21 +292,42 @@ export class MockPaymentService {
     }
   }
 
-  async refundPayment(refundData: RefundRequest): Promise<PaymentResponse> {
+  async refundPayment(refundData: RefundRequest, req?: Request): Promise<PaymentResponse> {
+    const callId = logger.startServiceCall('payment', 'refundPayment', req, {
+      transactionId: refundData.transactionId,
+      amount: refundData.amount,
+      reason: refundData.reason,
+      service: 'mock',
+    });
+
     try {
-      logger.info('Mock: Processing refund', { 
+      logger.info('Mock: Processing refund request', 'payment', 'refundPayment', req, {
         transactionId: refundData.transactionId,
-        amount: refundData.amount 
+        amount: refundData.amount,
+        reason: refundData.reason,
       });
 
       await this.simulateDelay();
 
       const originalTransaction = this.transactions.get(refundData.transactionId);
       if (!originalTransaction) {
+        logger.endServiceCall(callId, false, req, 'Transaction not found');
+        logger.logPayment('refund', refundData.amount || 0, 'USD', false, req, {
+          error: 'Transaction not found',
+          originalTransactionId: refundData.transactionId,
+          service: 'mock',
+        });
         throw new AppError('Transaction not found', 404, PaymentErrorCodes.TRANSACTION_NOT_FOUND);
       }
 
       if (!['completed', 'captured'].includes(originalTransaction.status)) {
+        logger.endServiceCall(callId, false, req, 'Transaction cannot be refunded');
+        logger.logPayment('refund', refundData.amount || 0, 'USD', false, req, {
+          error: 'Transaction cannot be refunded',
+          originalTransactionId: refundData.transactionId,
+          currentStatus: originalTransaction.status,
+          service: 'mock',
+        });
         throw new AppError('Transaction cannot be refunded', 400, PaymentErrorCodes.REFUND_FAILED);
       }
 
@@ -221,6 +342,7 @@ export class MockPaymentService {
         originalTransactionId: refundData.transactionId,
         reason: refundData.reason,
         createdAt: new Date(),
+        correlationId: req?.tracing?.correlationId,
       });
 
       const response: PaymentResponse = {
@@ -233,9 +355,18 @@ export class MockPaymentService {
         timestamp: new Date(),
       };
 
-      logger.info('Mock: Refund processed successfully', {
+      logger.endServiceCall(callId, true, req, undefined, {
         transactionId: refundTransactionId,
-        amount: refundAmount,
+        authCode: originalTransaction.authCode,
+        responseCode: '1',
+      });
+
+      logger.logPayment('refund', refundAmount, 'USD', true, req, {
+        transactionId: refundTransactionId,
+        originalTransactionId: refundData.transactionId,
+        reason: refundData.reason,
+        authCode: originalTransaction.authCode,
+        service: 'mock',
       });
 
       return response;
@@ -244,7 +375,15 @@ export class MockPaymentService {
         throw error;
       }
       const errorMessage = error instanceof Error ? error.message : 'Unknown error';
-      logger.error('Mock: Refund error', { error: errorMessage });
+      
+      logger.endServiceCall(callId, false, req, errorMessage);
+      logger.logPayment('refund', refundData.amount || 0, 'USD', false, req, {
+        error: errorMessage,
+        originalTransactionId: refundData.transactionId,
+        reason: refundData.reason,
+        service: 'mock',
+      });
+      
       throw new AppError(
         'Refund processing failed',
         500,
@@ -253,20 +392,40 @@ export class MockPaymentService {
     }
   }
 
-  async voidPayment(voidData: VoidRequest): Promise<PaymentResponse> {
+  async voidPayment(voidData: VoidRequest, req?: Request): Promise<PaymentResponse> {
+    const callId = logger.startServiceCall('payment', 'voidPayment', req, {
+      transactionId: voidData.transactionId,
+      reason: voidData.reason,
+      service: 'mock',
+    });
+
     try {
-      logger.info('Mock: Voiding payment', { 
-        transactionId: voidData.transactionId 
+      logger.info('Mock: Voiding payment request', 'payment', 'voidPayment', req, {
+        transactionId: voidData.transactionId,
+        reason: voidData.reason,
       });
 
       await this.simulateDelay();
 
       const originalTransaction = this.transactions.get(voidData.transactionId);
       if (!originalTransaction) {
+        logger.endServiceCall(callId, false, req, 'Transaction not found');
+        logger.logPayment('void', 0, 'USD', false, req, {
+          error: 'Transaction not found',
+          originalTransactionId: voidData.transactionId,
+          service: 'mock',
+        });
         throw new AppError('Transaction not found', 404, PaymentErrorCodes.TRANSACTION_NOT_FOUND);
       }
 
       if (!['authorized', 'completed'].includes(originalTransaction.status)) {
+        logger.endServiceCall(callId, false, req, 'Transaction cannot be voided');
+        logger.logPayment('void', 0, 'USD', false, req, {
+          error: 'Transaction cannot be voided',
+          originalTransactionId: voidData.transactionId,
+          currentStatus: originalTransaction.status,
+          service: 'mock',
+        });
         throw new AppError('Transaction cannot be voided', 400, PaymentErrorCodes.VOID_FAILED);
       }
 
@@ -285,8 +444,18 @@ export class MockPaymentService {
         timestamp: new Date(),
       };
 
-      logger.info('Mock: Payment voided successfully', {
+      logger.endServiceCall(callId, true, req, undefined, {
         transactionId: voidData.transactionId,
+        authCode: originalTransaction.authCode,
+        responseCode: '1',
+      });
+
+      logger.logPayment('void', 0, 'USD', true, req, {
+        transactionId: voidData.transactionId,
+        originalTransactionId: voidData.transactionId,
+        reason: voidData.reason,
+        authCode: originalTransaction.authCode,
+        service: 'mock',
       });
 
       return response;
@@ -295,7 +464,15 @@ export class MockPaymentService {
         throw error;
       }
       const errorMessage = error instanceof Error ? error.message : 'Unknown error';
-      logger.error('Mock: Void error', { error: errorMessage });
+      
+      logger.endServiceCall(callId, false, req, errorMessage);
+      logger.logPayment('void', 0, 'USD', false, req, {
+        error: errorMessage,
+        originalTransactionId: voidData.transactionId,
+        reason: voidData.reason,
+        service: 'mock',
+      });
+      
       throw new AppError(
         'Payment void failed',
         500,
@@ -330,5 +507,28 @@ export class MockPaymentService {
       transactionId: id,
       ...data
     }));
+  }
+
+  // Get transactions with tracing info
+  getTracingInfo() {
+    const transactions = this.getAllTransactions();
+    return {
+      totalTransactions: transactions.length,
+      transactionTypes: transactions.reduce((acc, tx) => {
+        acc[tx.type] = (acc[tx.type] || 0) + 1;
+        return acc;
+      }, {} as Record<string, number>),
+      recentTransactions: transactions
+        .sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime())
+        .slice(0, 10)
+        .map(tx => ({
+          transactionId: tx.transactionId,
+          type: tx.type,
+          amount: tx.amount,
+          status: tx.status,
+          correlationId: tx.correlationId,
+          createdAt: tx.createdAt,
+        })),
+    };
   }
 }

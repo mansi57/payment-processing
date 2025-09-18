@@ -5,7 +5,7 @@
     "version": "2.0.0",
     "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
   },
-  "variable": [
+    "variable": [
     {
       "key": "base_url",
       "value": "http://localhost:3000",
@@ -35,9 +35,308 @@
       "key": "idempotency_key",
       "value": "",
       "type": "string"
+    },
+    {
+      "key": "correlation_id",
+      "value": "",
+      "type": "string"
+    },
+    {
+      "key": "request_id",
+      "value": "",
+      "type": "string"
     }
   ],
   "item": [
+    {
+      "name": "🔍 Distributed Tracing",
+      "item": [
+        {
+          "name": "Generate Correlation ID",
+          "event": [
+            {
+              "listen": "prerequest",
+              "script": {
+                "exec": [
+                  "// Generate correlation ID for tracing",
+                  "const correlationId = 'trace-' + pm.variables.replaceIn('{{$timestamp}}') + '-' + pm.variables.replaceIn('{{$randomAlphaNumeric}}{{$randomAlphaNumeric}}{{$randomAlphaNumeric}}');",
+                  "pm.collectionVariables.set('correlation_id', correlationId);",
+                  "console.log('Generated Correlation ID:', correlationId);"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "X-Correlation-ID",
+                "value": "{{correlation_id}}",
+                "type": "text"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/health",
+              "host": ["{{base_url}}"],
+              "path": ["health"]
+            },
+            "description": "Generate a new correlation ID for distributed tracing testing"
+          },
+          "response": []
+        },
+        {
+          "name": "Test Single Request Tracing",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('Response has correlation ID header', function () {",
+                  "    pm.expect(pm.response.headers.get('X-Correlation-ID')).to.eql(pm.collectionVariables.get('correlation_id'));",
+                  "});",
+                  "",
+                  "pm.test('Response has request ID header', function () {",
+                  "    pm.expect(pm.response.headers.get('X-Request-ID')).to.not.be.empty;",
+                  "    pm.collectionVariables.set('request_id', pm.response.headers.get('X-Request-ID'));",
+                  "});",
+                  "",
+                  "pm.test('Response body contains tracing info', function () {",
+                  "    const responseJson = pm.response.json();",
+                  "    pm.expect(responseJson.tracing).to.be.an('object');",
+                  "    pm.expect(responseJson.tracing.correlationId).to.eql(pm.collectionVariables.get('correlation_id'));",
+                  "});"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "X-Correlation-ID",
+                "value": "{{correlation_id}}",
+                "type": "text"
+              },
+              {
+                "key": "X-Request-ID",
+                "value": "trace-req-{{$randomUUID}}",
+                "type": "text"
+              },
+              {
+                "key": "X-Source",
+                "value": "postman-tracing-test",
+                "type": "text"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"amount\": 150.00,\n  \"currency\": \"USD\",\n  \"customerInfo\": {\n    \"firstName\": \"Trace\",\n    \"lastName\": \"Test\",\n    \"email\": \"trace@example.com\"\n  },\n  \"paymentMethod\": {\n    \"type\": \"credit_card\",\n    \"cardNumber\": \"4111111111111111\",\n    \"expirationDate\": \"1225\",\n    \"cvv\": \"123\"\n  },\n  \"orderId\": \"TRACE-{{$timestamp}}\",\n  \"description\": \"Single request tracing test\"\n}"
+            },
+            "url": {
+              "raw": "{{base_url}}/api/payments/purchase",
+              "host": ["{{base_url}}"],
+              "path": ["api", "payments", "purchase"]
+            },
+            "description": "Test distributed tracing with a single payment request"
+          },
+          "response": []
+        },
+        {
+          "name": "Test Sequential Request Tracing - Authorize",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('Authorization successful', function () {",
+                  "    pm.response.to.have.status(200);",
+                  "    const responseJson = pm.response.json();",
+                  "    pm.expect(responseJson.success).to.be.true;",
+                  "});",
+                  "",
+                  "pm.test('Same correlation ID in response', function () {",
+                  "    const responseJson = pm.response.json();",
+                  "    pm.expect(responseJson.tracing.correlationId).to.eql(pm.collectionVariables.get('correlation_id'));",
+                  "});",
+                  "",
+                  "pm.test('Transaction ID saved for capture', function () {",
+                  "    const responseJson = pm.response.json();",
+                  "    pm.expect(responseJson.data.transactionId).to.not.be.empty;",
+                  "    pm.collectionVariables.set('transaction_id', responseJson.data.transactionId);",
+                  "});"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "X-Correlation-ID",
+                "value": "{{correlation_id}}",
+                "type": "text"
+              },
+              {
+                "key": "X-Request-ID",
+                "value": "trace-auth-{{$randomUUID}}",
+                "type": "text"
+              },
+              {
+                "key": "X-Source",
+                "value": "postman-sequential-test",
+                "type": "text"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"amount\": 250.00,\n  \"customerInfo\": {\n    \"firstName\": \"Sequential\",\n    \"lastName\": \"Trace\",\n    \"email\": \"sequential@example.com\"\n  },\n  \"paymentMethod\": {\n    \"type\": \"credit_card\",\n    \"cardNumber\": \"4111111111111111\",\n    \"expirationDate\": \"1225\",\n    \"cvv\": \"123\"\n  },\n  \"orderId\": \"SEQ-AUTH-{{$timestamp}}\",\n  \"description\": \"Sequential tracing test - authorization step\"\n}"
+            },
+            "url": {
+              "raw": "{{base_url}}/api/payments/authorize",
+              "host": ["{{base_url}}"],
+              "path": ["api", "payments", "authorize"]
+            },
+            "description": "First step in sequential tracing test - authorize payment with shared correlation ID"
+          },
+          "response": []
+        },
+        {
+          "name": "Test Sequential Request Tracing - Capture",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('Capture successful', function () {",
+                  "    pm.response.to.have.status(200);",
+                  "    const responseJson = pm.response.json();",
+                  "    pm.expect(responseJson.success).to.be.true;",
+                  "});",
+                  "",
+                  "pm.test('Same correlation ID maintained', function () {",
+                  "    const responseJson = pm.response.json();",
+                  "    pm.expect(responseJson.tracing.correlationId).to.eql(pm.collectionVariables.get('correlation_id'));",
+                  "    console.log('✅ Both authorize and capture share correlation ID:', responseJson.tracing.correlationId);",
+                  "});",
+                  "",
+                  "pm.test('Different request ID for capture', function () {",
+                  "    const responseJson = pm.response.json();",
+                  "    pm.expect(responseJson.tracing.requestId).to.not.eql(pm.collectionVariables.get('request_id'));",
+                  "    console.log('✅ Capture has different request ID:', responseJson.tracing.requestId);",
+                  "});"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "X-Correlation-ID",
+                "value": "{{correlation_id}}",
+                "type": "text",
+                "description": "Same correlation ID as authorize step"
+              },
+              {
+                "key": "X-Request-ID",
+                "value": "trace-capture-{{$randomUUID}}",
+                "type": "text",
+                "description": "Different request ID for capture step"
+              },
+              {
+                "key": "X-Source",
+                "value": "postman-sequential-test",
+                "type": "text"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"amount\": 250.00\n}"
+            },
+            "url": {
+              "raw": "{{base_url}}/api/payments/capture/{{transaction_id}}",
+              "host": ["{{base_url}}"],
+              "path": ["api", "payments", "capture", "{{transaction_id}}"]
+            },
+            "description": "Second step in sequential tracing test - capture with same correlation ID but different request ID"
+          },
+          "response": []
+        },
+        {
+          "name": "Test Error Scenario Tracing",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('Error response has tracing headers', function () {",
+                  "    pm.expect(pm.response.headers.get('X-Correlation-ID')).to.not.be.empty;",
+                  "    pm.expect(pm.response.headers.get('X-Request-ID')).to.not.be.empty;",
+                  "});",
+                  "",
+                  "pm.test('Error properly traced', function () {",
+                  "    // Even failed requests should be traced",
+                  "    console.log('Error traced with correlation ID:', pm.response.headers.get('X-Correlation-ID'));",
+                  "});"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "X-Correlation-ID",
+                "value": "error-trace-{{$timestamp}}",
+                "type": "text"
+              },
+              {
+                "key": "X-Request-ID",
+                "value": "error-req-{{$randomUUID}}",
+                "type": "text"
+              },
+              {
+                "key": "X-Source",
+                "value": "postman-error-test",
+                "type": "text"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"amount\": 100.00,\n  \"currency\": \"USD\",\n  \"customerInfo\": {\n    \"firstName\": \"Error\",\n    \"lastName\": \"Test\",\n    \"email\": \"error@example.com\"\n  },\n  \"paymentMethod\": {\n    \"type\": \"credit_card\",\n    \"cardNumber\": \"4000000000000002\",\n    \"expirationDate\": \"1225\",\n    \"cvv\": \"123\"\n  },\n  \"orderId\": \"ERROR-{{$timestamp}}\",\n  \"description\": \"Error scenario tracing test\"\n}"
+            },
+            "url": {
+              "raw": "{{base_url}}/api/payments/purchase",
+              "host": ["{{base_url}}"],
+              "path": ["api", "payments", "purchase"]
+            },
+            "description": "Test distributed tracing with payment failure scenario"
+          },
+          "response": []
+        }
+      ]
+    },
     {
       "name": "🏥 Health Checks",
       "item": [
@@ -45,13 +344,24 @@
           "name": "System Health Check",
           "request": {
             "method": "GET",
-            "header": [],
+            "header": [
+              {
+                "key": "X-Correlation-ID",
+                "value": "health-{{$timestamp}}",
+                "type": "text"
+              },
+              {
+                "key": "X-Source",
+                "value": "postman-health-check",
+                "type": "text"
+              }
+            ],
             "url": {
               "raw": "{{base_url}}/health",
               "host": ["{{base_url}}"],
               "path": ["health"]
             },
-            "description": "Check overall system health with all services status"
+            "description": "Check overall system health with distributed tracing headers"
           },
           "response": []
         },
@@ -59,13 +369,24 @@
           "name": "Payment Service Health",
           "request": {
             "method": "GET",
-            "header": [],
+            "header": [
+              {
+                "key": "X-Correlation-ID",
+                "value": "payment-health-{{$timestamp}}",
+                "type": "text"
+              },
+              {
+                "key": "X-Source",
+                "value": "postman-payment-health",
+                "type": "text"
+              }
+            ],
             "url": {
               "raw": "{{base_url}}/api/payments/health",
               "host": ["{{base_url}}"],
               "path": ["api", "payments", "health"]
             },
-            "description": "Check payment service specific health"
+            "description": "Check payment service health with distributed tracing"
           },
           "response": []
         },
@@ -73,7 +394,18 @@
           "name": "Subscription Service Health",
           "request": {
             "method": "GET",
-            "header": [],
+            "header": [
+              {
+                "key": "X-Correlation-ID",
+                "value": "service-health-{{$timestamp}}",
+                "type": "text"
+              },
+              {
+                "key": "X-Source",
+                "value": "postman-service-health",
+                "type": "text"
+              }
+            ],
             "url": {
               "raw": "{{base_url}}/api/subscriptions/health",
               "host": ["{{base_url}}"],
@@ -87,7 +419,18 @@
           "name": "Webhook Service Health",
           "request": {
             "method": "GET",
-            "header": [],
+            "header": [
+              {
+                "key": "X-Correlation-ID",
+                "value": "service-health-{{$timestamp}}",
+                "type": "text"
+              },
+              {
+                "key": "X-Source",
+                "value": "postman-service-health",
+                "type": "text"
+              }
+            ],
             "url": {
               "raw": "{{base_url}}/api/webhooks/health",
               "host": ["{{base_url}}"],
@@ -275,7 +618,18 @@
           ],
           "request": {
             "method": "GET",
-            "header": [],
+            "header": [
+              {
+                "key": "X-Correlation-ID",
+                "value": "service-health-{{$timestamp}}",
+                "type": "text"
+              },
+              {
+                "key": "X-Source",
+                "value": "postman-service-health",
+                "type": "text"
+              }
+            ],
             "url": {
               "raw": "{{base_url}}/health",
               "host": ["{{base_url}}"],
@@ -430,7 +784,18 @@
           "name": "List All Plans",
           "request": {
             "method": "GET",
-            "header": [],
+            "header": [
+              {
+                "key": "X-Correlation-ID",
+                "value": "service-health-{{$timestamp}}",
+                "type": "text"
+              },
+              {
+                "key": "X-Source",
+                "value": "postman-service-health",
+                "type": "text"
+              }
+            ],
             "url": {
               "raw": "{{base_url}}/api/subscriptions/plans",
               "host": ["{{base_url}}"],
@@ -444,7 +809,18 @@
           "name": "Get Specific Plan",
           "request": {
             "method": "GET",
-            "header": [],
+            "header": [
+              {
+                "key": "X-Correlation-ID",
+                "value": "service-health-{{$timestamp}}",
+                "type": "text"
+              },
+              {
+                "key": "X-Source",
+                "value": "postman-service-health",
+                "type": "text"
+              }
+            ],
             "url": {
               "raw": "{{base_url}}/api/subscriptions/plans/{{plan_id}}",
               "host": ["{{base_url}}"],
@@ -503,7 +879,18 @@
           "name": "Get Subscription",
           "request": {
             "method": "GET",
-            "header": [],
+            "header": [
+              {
+                "key": "X-Correlation-ID",
+                "value": "service-health-{{$timestamp}}",
+                "type": "text"
+              },
+              {
+                "key": "X-Source",
+                "value": "postman-service-health",
+                "type": "text"
+              }
+            ],
             "url": {
               "raw": "{{base_url}}/api/subscriptions/subscriptions/{{subscription_id}}",
               "host": ["{{base_url}}"],
@@ -655,7 +1042,18 @@
           "name": "List Webhook Endpoints",
           "request": {
             "method": "GET",
-            "header": [],
+            "header": [
+              {
+                "key": "X-Correlation-ID",
+                "value": "service-health-{{$timestamp}}",
+                "type": "text"
+              },
+              {
+                "key": "X-Source",
+                "value": "postman-service-health",
+                "type": "text"
+              }
+            ],
             "url": {
               "raw": "{{base_url}}/api/webhooks/endpoints",
               "host": ["{{base_url}}"],
@@ -669,7 +1067,18 @@
           "name": "Get Webhook Endpoint",
           "request": {
             "method": "GET",
-            "header": [],
+            "header": [
+              {
+                "key": "X-Correlation-ID",
+                "value": "service-health-{{$timestamp}}",
+                "type": "text"
+              },
+              {
+                "key": "X-Source",
+                "value": "postman-service-health",
+                "type": "text"
+              }
+            ],
             "url": {
               "raw": "{{base_url}}/api/webhooks/endpoints/{{webhook_endpoint_id}}",
               "host": ["{{base_url}}"],
@@ -729,7 +1138,18 @@
           "name": "Get Webhook Endpoint Health",
           "request": {
             "method": "GET",
-            "header": [],
+            "header": [
+              {
+                "key": "X-Correlation-ID",
+                "value": "service-health-{{$timestamp}}",
+                "type": "text"
+              },
+              {
+                "key": "X-Source",
+                "value": "postman-service-health",
+                "type": "text"
+              }
+            ],
             "url": {
               "raw": "{{base_url}}/api/webhooks/endpoints/{{webhook_endpoint_id}}/health",
               "host": ["{{base_url}}"],
@@ -743,7 +1163,18 @@
           "name": "Delete Webhook Endpoint",
           "request": {
             "method": "DELETE",
-            "header": [],
+            "header": [
+              {
+                "key": "X-Correlation-ID",
+                "value": "service-health-{{$timestamp}}",
+                "type": "text"
+              },
+              {
+                "key": "X-Source",
+                "value": "postman-service-health",
+                "type": "text"
+              }
+            ],
             "url": {
               "raw": "{{base_url}}/api/webhooks/endpoints/{{webhook_endpoint_id}}",
               "host": ["{{base_url}}"],
@@ -813,7 +1244,18 @@
           "name": "List Webhook Events",
           "request": {
             "method": "GET",
-            "header": [],
+            "header": [
+              {
+                "key": "X-Correlation-ID",
+                "value": "service-health-{{$timestamp}}",
+                "type": "text"
+              },
+              {
+                "key": "X-Source",
+                "value": "postman-service-health",
+                "type": "text"
+              }
+            ],
             "url": {
               "raw": "{{base_url}}/api/webhooks/events",
               "host": ["{{base_url}}"],
@@ -827,7 +1269,18 @@
           "name": "Get Webhook Deliveries",
           "request": {
             "method": "GET",
-            "header": [],
+            "header": [
+              {
+                "key": "X-Correlation-ID",
+                "value": "service-health-{{$timestamp}}",
+                "type": "text"
+              },
+              {
+                "key": "X-Source",
+                "value": "postman-service-health",
+                "type": "text"
+              }
+            ],
             "url": {
               "raw": "{{base_url}}/api/webhooks/endpoints/{{webhook_endpoint_id}}/deliveries",
               "host": ["{{base_url}}"],
@@ -841,7 +1294,18 @@
           "name": "Webhook Analytics",
           "request": {
             "method": "GET",
-            "header": [],
+            "header": [
+              {
+                "key": "X-Correlation-ID",
+                "value": "service-health-{{$timestamp}}",
+                "type": "text"
+              },
+              {
+                "key": "X-Source",
+                "value": "postman-service-health",
+                "type": "text"
+              }
+            ],
             "url": {
               "raw": "{{base_url}}/api/webhooks/analytics/deliveries",
               "host": ["{{base_url}}"],

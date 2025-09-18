@@ -1,7 +1,8 @@
 import * as AuthorizeNet from 'authorizenet';
 import { v4 as uuidv4 } from 'uuid';
+import { Request } from 'express';
 import config from '../config';
-import logger from '../utils/logger';
+import { logger } from '../utils/tracingLogger';
 import {
   PaymentRequest,
   PaymentResponse,
@@ -20,8 +21,12 @@ export class AuthorizeNetService {
     this.apiClient = new AuthorizeNet.APIContracts.MerchantAuthenticationType();
     this.apiClient.setName(config.authNet.apiLoginId);
     this.apiClient.setTransactionKey(config.authNet.transactionKey);
+    
+    logger.info('AuthorizeNetService initialized', 'payment', 'initialization', undefined, {
+      environment: config.authNet.environment,
+      apiLoginId: config.authNet.apiLoginId.substring(0, 4) + '****',
+    });
   }
-
 
   private createTransactionRequest(): any {
     const transactionRequest = new AuthorizeNet.APIContracts.CreateTransactionRequest();
@@ -71,11 +76,18 @@ export class AuthorizeNetService {
     return { customer, billTo: null };
   }
 
-  async processPayment(paymentData: PaymentRequest): Promise<PaymentResponse> {
+  async processPayment(paymentData: PaymentRequest, req?: Request): Promise<PaymentResponse> {
+    const callId = logger.startServiceCall('payment', 'processPayment', req, {
+      amount: paymentData.amount,
+      currency: paymentData.currency,
+      orderId: paymentData.orderId,
+    });
+
     try {
-      logger.info('Processing payment', { 
-        amount: paymentData.amount, 
-        orderId: paymentData.orderId 
+      logger.info('Processing payment request', 'payment', 'processPayment', req, {
+        amount: paymentData.amount,
+        currency: paymentData.currency,
+        orderId: paymentData.orderId,
       });
 
       const transactionRequestType = new AuthorizeNet.APIContracts.TransactionRequestType();
@@ -137,9 +149,16 @@ export class AuthorizeNetService {
                 metadata: paymentData.metadata,
               };
 
-              logger.info('Payment processed successfully', {
+              logger.endServiceCall(callId, true, req, undefined, {
                 transactionId: paymentResponse.transactionId,
-                amount: paymentResponse.amount,
+                authCode: paymentResponse.authCode,
+                responseCode: paymentResponse.responseCode,
+              });
+
+              logger.logPayment('purchase', paymentData.amount, paymentData.currency || 'USD', true, req, {
+                transactionId: paymentResponse.transactionId,
+                orderId: paymentData.orderId,
+                authCode: paymentResponse.authCode,
               });
 
               resolve(paymentResponse);
@@ -148,19 +167,36 @@ export class AuthorizeNetService {
                 ? transactionResponse.getErrors()?.getError()?.[0]?.getErrorText() || 'Transaction failed'
                 : 'Transaction failed';
 
-              logger.error('Payment transaction failed', { error: errorMessage });
+              logger.endServiceCall(callId, false, req, errorMessage);
+              logger.logPayment('purchase', paymentData.amount, paymentData.currency || 'USD', false, req, {
+                error: errorMessage,
+                orderId: paymentData.orderId,
+              });
+
               reject(new AppError(errorMessage, 400, PaymentErrorCodes.CARD_DECLINED));
             }
           } else {
             const errorMessage = response.getMessages().getMessage()[0].getText();
-            logger.error('Payment API error', { error: errorMessage });
+            
+            logger.endServiceCall(callId, false, req, errorMessage);
+            logger.logPayment('purchase', paymentData.amount, paymentData.currency || 'USD', false, req, {
+              error: errorMessage,
+              orderId: paymentData.orderId,
+            });
+
             reject(new AppError(errorMessage, 400, PaymentErrorCodes.API_ERROR));
           }
         });
       });
     } catch (error) {
       const errorMessage = error instanceof Error ? error.message : 'Unknown error';
-      logger.error('Payment processing error', { error: errorMessage });
+      
+      logger.endServiceCall(callId, false, req, errorMessage);
+      logger.logPayment('purchase', paymentData.amount, paymentData.currency || 'USD', false, req, {
+        error: errorMessage,
+        orderId: paymentData.orderId,
+      });
+      
       throw new AppError(
         'Payment processing failed',
         500,
@@ -169,11 +205,16 @@ export class AuthorizeNetService {
     }
   }
 
-  async authorizePayment(authData: AuthorizeRequest): Promise<PaymentResponse> {
+  async authorizePayment(authData: AuthorizeRequest, req?: Request): Promise<PaymentResponse> {
+    const callId = logger.startServiceCall('payment', 'authorizePayment', req, {
+      amount: authData.amount,
+      orderId: authData.orderId,
+    });
+
     try {
-      logger.info('Authorizing payment', { 
-        amount: authData.amount, 
-        orderId: authData.orderId 
+      logger.info('Authorizing payment request', 'payment', 'authorizePayment', req, {
+        amount: authData.amount,
+        orderId: authData.orderId,
       });
 
       const transactionRequestType = new AuthorizeNet.APIContracts.TransactionRequestType();
@@ -226,9 +267,16 @@ export class AuthorizeNetService {
                 timestamp: new Date(),
               };
 
-              logger.info('Payment authorized successfully', {
+              logger.endServiceCall(callId, true, req, undefined, {
                 transactionId: authResponse.transactionId,
-                amount: authResponse.amount,
+                authCode: authResponse.authCode,
+                responseCode: authResponse.responseCode,
+              });
+
+              logger.logPayment('authorize', authData.amount, 'USD', true, req, {
+                transactionId: authResponse.transactionId,
+                orderId: authData.orderId,
+                authCode: authResponse.authCode,
               });
 
               resolve(authResponse);
@@ -237,19 +285,36 @@ export class AuthorizeNetService {
                 ? transactionResponse.getErrors()?.getError()?.[0]?.getErrorText() || 'Authorization failed'
                 : 'Authorization failed';
 
-              logger.error('Payment authorization failed', { error: errorMessage });
+              logger.endServiceCall(callId, false, req, errorMessage);
+              logger.logPayment('authorize', authData.amount, 'USD', false, req, {
+                error: errorMessage,
+                orderId: authData.orderId,
+              });
+
               reject(new AppError(errorMessage, 400, PaymentErrorCodes.AUTHORIZATION_FAILED));
             }
           } else {
             const errorMessage = response.getMessages().getMessage()[0].getText();
-            logger.error('Authorization API error', { error: errorMessage });
+            
+            logger.endServiceCall(callId, false, req, errorMessage);
+            logger.logPayment('authorize', authData.amount, 'USD', false, req, {
+              error: errorMessage,
+              orderId: authData.orderId,
+            });
+
             reject(new AppError(errorMessage, 400, PaymentErrorCodes.API_ERROR));
           }
         });
       });
     } catch (error) {
       const errorMessage = error instanceof Error ? error.message : 'Unknown error';
-      logger.error('Authorization error', { error: errorMessage });
+      
+      logger.endServiceCall(callId, false, req, errorMessage);
+      logger.logPayment('authorize', authData.amount, 'USD', false, req, {
+        error: errorMessage,
+        orderId: authData.orderId,
+      });
+      
       throw new AppError(
         'Payment authorization failed',
         500,
@@ -258,11 +323,16 @@ export class AuthorizeNetService {
     }
   }
 
-  async capturePayment(captureData: CaptureRequest): Promise<PaymentResponse> {
+  async capturePayment(captureData: CaptureRequest, req?: Request): Promise<PaymentResponse> {
+    const callId = logger.startServiceCall('payment', 'capturePayment', req, {
+      transactionId: captureData.transactionId,
+      amount: captureData.amount,
+    });
+
     try {
-      logger.info('Capturing payment', { 
+      logger.info('Capturing payment request', 'payment', 'capturePayment', req, {
         transactionId: captureData.transactionId,
-        amount: captureData.amount 
+        amount: captureData.amount,
       });
 
       const transactionRequestType = new AuthorizeNet.APIContracts.TransactionRequestType();
@@ -302,9 +372,16 @@ export class AuthorizeNetService {
                 timestamp: new Date(),
               };
 
-              logger.info('Payment captured successfully', {
+              logger.endServiceCall(callId, true, req, undefined, {
                 transactionId: captureResponse.transactionId,
-                amount: captureResponse.amount,
+                authCode: captureResponse.authCode,
+                responseCode: captureResponse.responseCode,
+              });
+
+              logger.logPayment('capture', captureData.amount || 0, 'USD', true, req, {
+                transactionId: captureResponse.transactionId,
+                originalTransactionId: captureData.transactionId,
+                authCode: captureResponse.authCode,
               });
 
               resolve(captureResponse);
@@ -313,19 +390,36 @@ export class AuthorizeNetService {
                 ? transactionResponse.getErrors()?.getError()?.[0]?.getErrorText() || 'Capture failed'
                 : 'Capture failed';
 
-              logger.error('Payment capture failed', { error: errorMessage });
+              logger.endServiceCall(callId, false, req, errorMessage);
+              logger.logPayment('capture', captureData.amount || 0, 'USD', false, req, {
+                error: errorMessage,
+                originalTransactionId: captureData.transactionId,
+              });
+
               reject(new AppError(errorMessage, 400, PaymentErrorCodes.CAPTURE_FAILED));
             }
           } else {
             const errorMessage = response.getMessages().getMessage()[0].getText();
-            logger.error('Capture API error', { error: errorMessage });
+            
+            logger.endServiceCall(callId, false, req, errorMessage);
+            logger.logPayment('capture', captureData.amount || 0, 'USD', false, req, {
+              error: errorMessage,
+              originalTransactionId: captureData.transactionId,
+            });
+
             reject(new AppError(errorMessage, 400, PaymentErrorCodes.API_ERROR));
           }
         });
       });
     } catch (error) {
       const errorMessage = error instanceof Error ? error.message : 'Unknown error';
-      logger.error('Capture error', { error: errorMessage });
+      
+      logger.endServiceCall(callId, false, req, errorMessage);
+      logger.logPayment('capture', captureData.amount || 0, 'USD', false, req, {
+        error: errorMessage,
+        originalTransactionId: captureData.transactionId,
+      });
+      
       throw new AppError(
         'Payment capture failed',
         500,
@@ -334,11 +428,18 @@ export class AuthorizeNetService {
     }
   }
 
-  async refundPayment(refundData: RefundRequest): Promise<PaymentResponse> {
+  async refundPayment(refundData: RefundRequest, req?: Request): Promise<PaymentResponse> {
+    const callId = logger.startServiceCall('payment', 'refundPayment', req, {
+      transactionId: refundData.transactionId,
+      amount: refundData.amount,
+      reason: refundData.reason,
+    });
+
     try {
-      logger.info('Processing refund', { 
+      logger.info('Processing refund request', 'payment', 'refundPayment', req, {
         transactionId: refundData.transactionId,
-        amount: refundData.amount 
+        amount: refundData.amount,
+        reason: refundData.reason,
       });
 
       const transactionRequestType = new AuthorizeNet.APIContracts.TransactionRequestType();
@@ -386,9 +487,17 @@ export class AuthorizeNetService {
                 timestamp: new Date(),
               };
 
-              logger.info('Refund processed successfully', {
+              logger.endServiceCall(callId, true, req, undefined, {
                 transactionId: refundResponse.transactionId,
-                amount: refundResponse.amount,
+                authCode: refundResponse.authCode,
+                responseCode: refundResponse.responseCode,
+              });
+
+              logger.logPayment('refund', refundData.amount || 0, 'USD', true, req, {
+                transactionId: refundResponse.transactionId,
+                originalTransactionId: refundData.transactionId,
+                reason: refundData.reason,
+                authCode: refundResponse.authCode,
               });
 
               resolve(refundResponse);
@@ -397,19 +506,39 @@ export class AuthorizeNetService {
                 ? transactionResponse.getErrors()?.getError()?.[0]?.getErrorText() || 'Refund failed'
                 : 'Refund failed';
 
-              logger.error('Refund failed', { error: errorMessage });
+              logger.endServiceCall(callId, false, req, errorMessage);
+              logger.logPayment('refund', refundData.amount || 0, 'USD', false, req, {
+                error: errorMessage,
+                originalTransactionId: refundData.transactionId,
+                reason: refundData.reason,
+              });
+
               reject(new AppError(errorMessage, 400, PaymentErrorCodes.REFUND_FAILED));
             }
           } else {
             const errorMessage = response.getMessages().getMessage()[0].getText();
-            logger.error('Refund API error', { error: errorMessage });
+            
+            logger.endServiceCall(callId, false, req, errorMessage);
+            logger.logPayment('refund', refundData.amount || 0, 'USD', false, req, {
+              error: errorMessage,
+              originalTransactionId: refundData.transactionId,
+              reason: refundData.reason,
+            });
+
             reject(new AppError(errorMessage, 400, PaymentErrorCodes.API_ERROR));
           }
         });
       });
     } catch (error) {
       const errorMessage = error instanceof Error ? error.message : 'Unknown error';
-      logger.error('Refund error', { error: errorMessage });
+      
+      logger.endServiceCall(callId, false, req, errorMessage);
+      logger.logPayment('refund', refundData.amount || 0, 'USD', false, req, {
+        error: errorMessage,
+        originalTransactionId: refundData.transactionId,
+        reason: refundData.reason,
+      });
+      
       throw new AppError(
         'Refund processing failed',
         500,
@@ -418,10 +547,16 @@ export class AuthorizeNetService {
     }
   }
 
-  async voidPayment(voidData: VoidRequest): Promise<PaymentResponse> {
+  async voidPayment(voidData: VoidRequest, req?: Request): Promise<PaymentResponse> {
+    const callId = logger.startServiceCall('payment', 'voidPayment', req, {
+      transactionId: voidData.transactionId,
+      reason: voidData.reason,
+    });
+
     try {
-      logger.info('Voiding payment', { 
-        transactionId: voidData.transactionId 
+      logger.info('Voiding payment request', 'payment', 'voidPayment', req, {
+        transactionId: voidData.transactionId,
+        reason: voidData.reason,
       });
 
       const transactionRequestType = new AuthorizeNet.APIContracts.TransactionRequestType();
@@ -457,8 +592,17 @@ export class AuthorizeNetService {
                 timestamp: new Date(),
               };
 
-              logger.info('Payment voided successfully', {
+              logger.endServiceCall(callId, true, req, undefined, {
                 transactionId: voidResponse.transactionId,
+                authCode: voidResponse.authCode,
+                responseCode: voidResponse.responseCode,
+              });
+
+              logger.logPayment('void', 0, 'USD', true, req, {
+                transactionId: voidResponse.transactionId,
+                originalTransactionId: voidData.transactionId,
+                reason: voidData.reason,
+                authCode: voidResponse.authCode,
               });
 
               resolve(voidResponse);
@@ -467,19 +611,39 @@ export class AuthorizeNetService {
                 ? transactionResponse.getErrors()?.getError()?.[0]?.getErrorText() || 'Void failed'
                 : 'Void failed';
 
-              logger.error('Payment void failed', { error: errorMessage });
+              logger.endServiceCall(callId, false, req, errorMessage);
+              logger.logPayment('void', 0, 'USD', false, req, {
+                error: errorMessage,
+                originalTransactionId: voidData.transactionId,
+                reason: voidData.reason,
+              });
+
               reject(new AppError(errorMessage, 400, PaymentErrorCodes.VOID_FAILED));
             }
           } else {
             const errorMessage = response.getMessages().getMessage()[0].getText();
-            logger.error('Void API error', { error: errorMessage });
+            
+            logger.endServiceCall(callId, false, req, errorMessage);
+            logger.logPayment('void', 0, 'USD', false, req, {
+              error: errorMessage,
+              originalTransactionId: voidData.transactionId,
+              reason: voidData.reason,
+            });
+
             reject(new AppError(errorMessage, 400, PaymentErrorCodes.API_ERROR));
           }
         });
       });
     } catch (error) {
       const errorMessage = error instanceof Error ? error.message : 'Unknown error';
-      logger.error('Void error', { error: errorMessage });
+      
+      logger.endServiceCall(callId, false, req, errorMessage);
+      logger.logPayment('void', 0, 'USD', false, req, {
+        error: errorMessage,
+        originalTransactionId: voidData.transactionId,
+        reason: voidData.reason,
+      });
+      
       throw new AppError(
         'Payment void failed',
         500,
