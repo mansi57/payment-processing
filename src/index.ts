@@ -3,6 +3,9 @@ import config from './config';
 import { logger } from './utils/tracingLogger';
 import { databaseService } from './services/databaseService';
 import { migrationService } from './services/migrationService';
+// import { eventEmitter } from './services/eventEmitter';
+// import { webhookProcessor } from './services/processors/webhookProcessor';
+// import { databaseEventProcessor } from './services/processors/databaseEventProcessor';
 
 const PORT = config.port;
 
@@ -40,6 +43,37 @@ const initializeDatabase = async (): Promise<void> => {
   }
 };
 
+// Queue system initialization
+const initializeQueueSystem = async (): Promise<void> => {
+  try {
+    logger.info('Initializing queue system...', 'queue', 'init');
+    
+    // Initialize the event emitter (which initializes queue manager)
+    await eventEmitter.initialize();
+    logger.info('Event emitter initialized', 'queue', 'init');
+    
+    // Initialize webhook processor
+    await webhookProcessor.initialize();
+    logger.info('Webhook processor initialized', 'queue', 'init');
+    
+    // Initialize database event processor
+    await databaseEventProcessor.initialize();
+    logger.info('Database event processor initialized', 'queue', 'init');
+    
+    logger.info('Queue system initialization completed', 'queue', 'init', undefined, {
+      queuesReady: eventEmitter.isReady(),
+      queueDriver: process.env.QUEUE_DRIVER || 'redis',
+      inMemoryMode: process.env.QUEUE_DRIVER === 'memory'
+    });
+    
+  } catch (error) {
+    logger.error('Failed to initialize queue system', 'queue', 'init', undefined, {
+      error: error instanceof Error ? error.message : 'Unknown error',
+    });
+    throw error;
+  }
+};
+
 // Graceful shutdown handling
 const gracefulShutdown = async (signal: string) => {
   logger.info(`Received ${signal}. Starting graceful shutdown...`, 'server', 'shutdown');
@@ -48,6 +82,18 @@ const gracefulShutdown = async (signal: string) => {
     // Close HTTP server
     server.close(async () => {
       logger.info('HTTP server closed', 'server', 'shutdown');
+      
+      // Close queue system (commented out for now)
+      /*
+      try {
+        await eventEmitter.shutdown();
+        logger.info('Queue system shutdown', 'queue', 'shutdown');
+      } catch (error) {
+        logger.error('Error shutting down queue system', 'queue', 'shutdown', undefined, {
+          error: error instanceof Error ? error.message : 'Unknown error',
+        });
+      }
+      */
       
       // Close database connections
       try {
@@ -81,6 +127,9 @@ const startApplication = async (): Promise<any> => {
   try {
     // Initialize database first
     await initializeDatabase();
+    
+    // Initialize queue system (commented out for now)
+    // await initializeQueueSystem();
     
     // Start HTTP server
     const server = app.listen(PORT, () => {
