@@ -2,7 +2,7 @@
   "info": {
     "name": "Advanced Payment Processing API",
     "description": "Complete Postman collection for testing the advanced payment processing system with subscriptions, webhooks, and idempotency",
-    "version": "2.0.0",
+    "version": "3.0.0",
     "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
   },
     "variable": [
@@ -43,6 +43,26 @@
     },
     {
       "key": "request_id",
+      "value": "",
+      "type": "string"
+    },
+    {
+      "key": "customer_id",
+      "value": "",
+      "type": "string"
+    },
+    {
+      "key": "order_id", 
+      "value": "",
+      "type": "string"
+    },
+    {
+      "key": "database_transaction_id",
+      "value": "",
+      "type": "string"
+    },
+    {
+      "key": "refund_id",
       "value": "",
       "type": "string"
     }
@@ -437,6 +457,476 @@
               "path": ["api", "webhooks", "health"]
             },
             "description": "Check webhook service health"
+          },
+          "response": []
+        }
+      ]
+    },
+    {
+      "name": "🗄️ Database Operations",
+      "item": [
+        {
+          "name": "Database Health Check",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "X-Correlation-ID",
+                "value": "db-health-{{$timestamp}}",
+                "type": "text"
+              },
+              {
+                "key": "X-Source",
+                "value": "postman-db-health",
+                "type": "text"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/database/health",
+              "host": ["{{base_url}}"],
+              "path": ["api", "database", "health"]
+            },
+            "description": "Check database health and connection status"
+          },
+          "response": []
+        },
+        {
+          "name": "Database Statistics",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "X-Correlation-ID",
+                "value": "db-stats-{{$timestamp}}",
+                "type": "text"
+              },
+              {
+                "key": "X-Source",
+                "value": "postman-db-stats",
+                "type": "text"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/database/statistics",
+              "host": ["{{base_url}}"],
+              "path": ["api", "database", "statistics"]
+            },
+            "description": "Get database statistics including record counts and performance metrics"
+          },
+          "response": []
+        },
+        {
+          "name": "Create Customer",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "if (pm.response.code === 201) {",
+                  "    const response = pm.response.json();",
+                  "    if (response.data && response.data.id) {",
+                  "        pm.collectionVariables.set('customer_id', response.data.id);",
+                  "        console.log('Saved customer ID:', response.data.id);",
+                  "    }",
+                  "}",
+                  "",
+                  "pm.test('Customer created successfully', function () {",
+                  "    pm.response.to.have.status(201);",
+                  "});",
+                  "",
+                  "pm.test('Response has customer data', function () {",
+                  "    const response = pm.response.json();",
+                  "    pm.expect(response).to.have.property('data');",
+                  "    pm.expect(response.data).to.have.property('id');",
+                  "    pm.expect(response.data).to.have.property('firstName');",
+                  "    pm.expect(response.data).to.have.property('lastName');",
+                  "    pm.expect(response.data).to.have.property('email');",
+                  "});",
+                  "",
+                  "pm.test('Distributed tracing headers present', function () {",
+                  "    const response = pm.response.json();",
+                  "    pm.expect(response).to.have.property('correlationId');",
+                  "    pm.expect(response).to.have.property('requestId');",
+                  "});"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "X-Correlation-ID",
+                "value": "db-customer-{{$timestamp}}",
+                "type": "text"
+              },
+              {
+                "key": "X-Source",
+                "value": "postman-db-customer",
+                "type": "text"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"firstName\": \"John\",\n  \"lastName\": \"Doe\",\n  \"email\": \"john.doe@example.com\",\n  \"phone\": \"555-0123\",\n  \"address\": {\n    \"street\": \"123 Main St\",\n    \"city\": \"Anytown\",\n    \"state\": \"CA\",\n    \"postalCode\": \"12345\",\n    \"country\": \"US\"\n  },\n  \"metadata\": {\n    \"source\": \"postman-test\",\n    \"accountType\": \"personal\"\n  }\n}"
+            },
+            "url": {
+              "raw": "{{base_url}}/api/database/customers",
+              "host": ["{{base_url}}"],
+              "path": ["api", "database", "customers"]
+            },
+            "description": "Create a new customer with address and metadata"
+          },
+          "response": []
+        },
+        {
+          "name": "Get Customer",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "X-Correlation-ID",
+                "value": "db-get-customer-{{$timestamp}}",
+                "type": "text"
+              },
+              {
+                "key": "X-Source",
+                "value": "postman-db-get-customer",
+                "type": "text"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/database/customers/{{customer_id}}",
+              "host": ["{{base_url}}"],
+              "path": ["api", "database", "customers", "{{customer_id}}"]
+            },
+            "description": "Retrieve a specific customer by ID"
+          },
+          "response": []
+        },
+        {
+          "name": "List Customers",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "X-Correlation-ID",
+                "value": "db-list-customers-{{$timestamp}}",
+                "type": "text"
+              },
+              {
+                "key": "X-Source",
+                "value": "postman-db-list-customers",
+                "type": "text"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/database/customers?page=1&limit=10",
+              "host": ["{{base_url}}"],
+              "path": ["api", "database", "customers"],
+              "query": [
+                {
+                  "key": "page",
+                  "value": "1"
+                },
+                {
+                  "key": "limit",
+                  "value": "10"
+                }
+              ]
+            },
+            "description": "List customers with pagination"
+          },
+          "response": []
+        },
+        {
+          "name": "Create Order",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "if (pm.response.code === 201) {",
+                  "    const response = pm.response.json();",
+                  "    if (response.data && response.data.id) {",
+                  "        pm.collectionVariables.set('order_id', response.data.id);",
+                  "        console.log('Saved order ID:', response.data.id);",
+                  "    }",
+                  "}",
+                  "",
+                  "pm.test('Order created successfully', function () {",
+                  "    pm.response.to.have.status(201);",
+                  "});",
+                  "",
+                  "pm.test('Response has order data', function () {",
+                  "    const response = pm.response.json();",
+                  "    pm.expect(response).to.have.property('data');",
+                  "    pm.expect(response.data).to.have.property('id');",
+                  "    pm.expect(response.data).to.have.property('customerId');",
+                  "    pm.expect(response.data).to.have.property('amount');",
+                  "    pm.expect(response.data).to.have.property('currency');",
+                  "    pm.expect(response.data).to.have.property('status');",
+                  "});"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "X-Correlation-ID",
+                "value": "db-order-{{$timestamp}}",
+                "type": "text"
+              },
+              {
+                "key": "X-Source",
+                "value": "postman-db-order",
+                "type": "text"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"customerId\": \"{{customer_id}}\",\n  \"amount\": 99.99,\n  \"currency\": \"USD\",\n  \"description\": \"Test order from Postman\",\n  \"metadata\": {\n    \"source\": \"postman-collection\",\n    \"testCase\": \"database-integration\"\n  }\n}"
+            },
+            "url": {
+              "raw": "{{base_url}}/api/database/orders",
+              "host": ["{{base_url}}"],
+              "path": ["api", "database", "orders"]
+            },
+            "description": "Create a new order for the customer"
+          },
+          "response": []
+        },
+        {
+          "name": "Get Order with Transactions",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "X-Correlation-ID",
+                "value": "db-get-order-{{$timestamp}}",
+                "type": "text"
+              },
+              {
+                "key": "X-Source",
+                "value": "postman-db-get-order",
+                "type": "text"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/database/orders/{{order_id}}",
+              "host": ["{{base_url}}"],
+              "path": ["api", "database", "orders", "{{order_id}}"]
+            },
+            "description": "Retrieve order details with associated transactions"
+          },
+          "response": []
+        },
+        {
+          "name": "List Orders",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "X-Correlation-ID",
+                "value": "db-list-orders-{{$timestamp}}",
+                "type": "text"
+              },
+              {
+                "key": "X-Source",
+                "value": "postman-db-list-orders",
+                "type": "text"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/database/orders?page=1&limit=10&status=pending",
+              "host": ["{{base_url}}"],
+              "path": ["api", "database", "orders"],
+              "query": [
+                {
+                  "key": "page",
+                  "value": "1"
+                },
+                {
+                  "key": "limit",
+                  "value": "10"
+                },
+                {
+                  "key": "status",
+                  "value": "pending"
+                }
+              ]
+            },
+            "description": "List orders with filtering and pagination"
+          },
+          "response": []
+        },
+        {
+          "name": "Create Transaction",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "if (pm.response.code === 201) {",
+                  "    const response = pm.response.json();",
+                  "    if (response.data && response.data.id) {",
+                  "        pm.collectionVariables.set('database_transaction_id', response.data.id);",
+                  "        console.log('Saved database transaction ID:', response.data.id);",
+                  "    }",
+                  "}",
+                  "",
+                  "pm.test('Transaction created successfully', function () {",
+                  "    pm.response.to.have.status(201);",
+                  "});",
+                  "",
+                  "pm.test('Response has transaction data', function () {",
+                  "    const response = pm.response.json();",
+                  "    pm.expect(response).to.have.property('data');",
+                  "    pm.expect(response.data).to.have.property('id');",
+                  "    pm.expect(response.data).to.have.property('orderId');",
+                  "    pm.expect(response.data).to.have.property('transactionId');",
+                  "    pm.expect(response.data).to.have.property('type');",
+                  "    pm.expect(response.data).to.have.property('amount');",
+                  "    pm.expect(response.data).to.have.property('status');",
+                  "});"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "X-Correlation-ID",
+                "value": "db-transaction-{{$timestamp}}",
+                "type": "text"
+              },
+              {
+                "key": "X-Source",
+                "value": "postman-db-transaction",
+                "type": "text"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"orderId\": \"{{order_id}}\",\n  \"transactionId\": \"txn_{{$randomInt}}\",\n  \"type\": \"purchase\",\n  \"amount\": 99.99,\n  \"currency\": \"USD\",\n  \"status\": \"succeeded\",\n  \"paymentMethodType\": \"credit_card\",\n  \"paymentMethodLast4\": \"4242\",\n  \"paymentMethodBrand\": \"visa\",\n  \"paymentMethodExpirationMonth\": 12,\n  \"paymentMethodExpirationYear\": 2025,\n  \"authCode\": \"AUTH123\",\n  \"responseCode\": \"00\",\n  \"responseMessage\": \"Approved\",\n  \"processorResponse\": {\n    \"avsResponse\": \"Y\",\n    \"cvvResponse\": \"M\",\n    \"networkTransactionId\": \"net_{{$randomAlphaNumeric}}\"\n  }\n}"
+            },
+            "url": {
+              "raw": "{{base_url}}/api/database/transactions",
+              "host": ["{{base_url}}"],
+              "path": ["api", "database", "transactions"]
+            },
+            "description": "Create a transaction record in the database"
+          },
+          "response": []
+        },
+        {
+          "name": "Get Transaction with Refunds",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "X-Correlation-ID",
+                "value": "db-get-transaction-{{$timestamp}}",
+                "type": "text"
+              },
+              {
+                "key": "X-Source",
+                "value": "postman-db-get-transaction",
+                "type": "text"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/database/transactions/{{database_transaction_id}}",
+              "host": ["{{base_url}}"],
+              "path": ["api", "database", "transactions", "{{database_transaction_id}}"]
+            },
+            "description": "Retrieve transaction details with associated refunds"
+          },
+          "response": []
+        },
+        {
+          "name": "List Transactions",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "X-Correlation-ID",
+                "value": "db-list-transactions-{{$timestamp}}",
+                "type": "text"
+              },
+              {
+                "key": "X-Source",
+                "value": "postman-db-list-transactions",
+                "type": "text"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/database/transactions?page=1&limit=10&status=succeeded&type=purchase",
+              "host": ["{{base_url}}"],
+              "path": ["api", "database", "transactions"],
+              "query": [
+                {
+                  "key": "page",
+                  "value": "1"
+                },
+                {
+                  "key": "limit",
+                  "value": "10"
+                },
+                {
+                  "key": "status",
+                  "value": "succeeded"
+                },
+                {
+                  "key": "type",
+                  "value": "purchase"
+                }
+              ]
+            },
+            "description": "List transactions with filtering by status and type"
+          },
+          "response": []
+        },
+        {
+          "name": "Migration Status",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "X-Correlation-ID",
+                "value": "db-migration-status-{{$timestamp}}",
+                "type": "text"
+              },
+              {
+                "key": "X-Source",
+                "value": "postman-db-migration",
+                "type": "text"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/database/migrations",
+              "host": ["{{base_url}}"],
+              "path": ["api", "database", "migrations"]
+            },
+            "description": "Check database migration status and applied migrations"
           },
           "response": []
         }

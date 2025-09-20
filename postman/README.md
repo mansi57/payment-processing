@@ -7,8 +7,10 @@ This directory contains comprehensive Postman collections for testing the advanc
 ### **🚀 Advanced Payment Processing API (RECOMMENDED)**
 **File:** `Advanced-Payment-Processing-API.postman_collection.json`
 
-**Complete collection with 80+ requests covering:**
+**Complete collection with 90+ requests covering:**
 - ✅ **Payment Processing** - Purchase, authorize, capture, refund, void
+- ✅ **Database Operations** - Customer, order, and transaction persistence  
+- ✅ **Distributed Tracing** - Correlation IDs and end-to-end request tracking
 - ✅ **Subscription Management** - Plans, subscriptions, lifecycle management
 - ✅ **Webhook Infrastructure** - Endpoints, events, delivery management
 - ✅ **Idempotency Testing** - Safe retry mechanisms
@@ -72,20 +74,22 @@ This directory contains comprehensive Postman collections for testing the advanc
 
 **Quick Test Sequence:**
 1. 🏥 **Health Checks** → Verify all services
-2. 💳 **Payment Processing** → Test core payment flows
-3. 🔒 **Idempotency** → Test safe retry mechanisms
-4. 📋 **Subscription Plans** → Create and manage plans
-5. 🔄 **Subscriptions** → Full subscription lifecycle
-6. 📡 **Webhooks** → Event delivery and monitoring
+2. 🗄️ **Database Operations** → Test customer, order & transaction persistence
+3. 🔍 **Distributed Tracing** → Verify correlation ID tracking
+4. 💳 **Payment Processing** → Test core payment flows
+5. 🔒 **Idempotency** → Test safe retry mechanisms
+6. 📋 **Subscription Plans** → Create and manage plans
+7. 🔄 **Subscriptions** → Full subscription lifecycle
+8. 📡 **Webhooks** → Event delivery and monitoring
 
 ---
 
 ## 🎯 **Collection Features**
 
 ### **🤖 Automated Variable Management**
-- **Auto-saves IDs** from responses (transaction_id, plan_id, subscription_id)
-- **Pre-request scripts** generate test data
-- **Test scripts** validate responses and save variables
+- **Auto-saves IDs** from responses (customer_id, order_id, database_transaction_id, plan_id, subscription_id, webhook_endpoint_id)
+- **Pre-request scripts** generate test data and correlation IDs
+- **Test scripts** validate responses and save variables for chaining requests
 
 ### **📝 Comprehensive Documentation**
 - **Detailed descriptions** for every request
@@ -233,3 +237,5 @@ Track your testing progress:
 **Happy Testing! 🚀**
 
 For detailed testing workflows, see `ADVANCED_TESTING_GUIDE.md`
+
+
