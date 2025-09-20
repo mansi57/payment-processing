@@ -1,0 +1,1945 @@
+openapi: 3.0.3
+info:
+  title: Advanced Payment Processing API
+  description: |
+    Enterprise-grade payment processing system with distributed tracing, queue-based processing, 
+    and comprehensive compliance features.
+    
+    ## Features
+    - **Payment Processing**: Authorize, capture, void, refund operations
+    - **Subscription Management**: Recurring payment lifecycle management  
+    - **Webhook System**: Reliable event delivery with retry logic
+    - **Database Operations**: Direct CRUD access to entities
+    - **Queue Management**: Background job processing and monitoring
+    - **Distributed Tracing**: End-to-end request correlation
+    - **Compliance**: PCI DSS, GDPR, SOX compliant design
+    
+    ## Authentication
+    All endpoints require API key authentication via `X-API-Key` header.
+    
+    ## Rate Limiting  
+    - Standard endpoints: 1000 requests/hour
+    - Payment endpoints: 500 requests/hour
+    - Admin endpoints: 100 requests/hour
+    
+    ## Correlation IDs
+    All responses include `X-Correlation-ID` header for request tracing.
+    
+  version: 3.0.0
+  contact:
+    name: Payment Processing API Support
+    email: api-support@paymentprocessing.com
+  license:
+    name: MIT
+    url: https://opensource.org/licenses/MIT
+
+servers:
+  - url: https://api.paymentprocessing.com/v3
+    description: Production server
+  - url: https://sandbox.paymentprocessing.com/v3  
+    description: Sandbox server
+  - url: http://localhost:3000
+    description: Development server
+
+security:
+  - ApiKeyAuth: []
+
+paths:
+  # Health Check
+  /health:
+    get:
+      tags: [System]
+      summary: System health check
+      description: Returns comprehensive system health status including database, queues, and services
+      security: []
+      responses:
+        '200':
+          description: System is healthy
+          headers:
+            X-Correlation-ID:
+              $ref: '#/components/headers/CorrelationID'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HealthResponse'
+        '503':
+          description: System is degraded or unhealthy
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  # Payment Processing
+  /api/payments/purchase:
+    post:
+      tags: [Payments]
+      summary: Process one-time payment
+      description: Process an immediate payment transaction
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/PaymentRequest'
+      responses:
+        '200':
+          description: Payment processed successfully
+          headers:
+            X-Correlation-ID:
+              $ref: '#/components/headers/CorrelationID'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PaymentResponse'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '402':
+          $ref: '#/components/responses/PaymentRequired'
+        '429':
+          $ref: '#/components/responses/RateLimited'
+        '500':
+          $ref: '#/components/responses/InternalError'
+
+  /api/payments/authorize:
+    post:
+      tags: [Payments]
+      summary: Authorize payment
+      description: Pre-authorize payment for later capture
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/AuthorizeRequest'
+      responses:
+        '200':
+          description: Payment authorized successfully
+          headers:
+            X-Correlation-ID:
+              $ref: '#/components/headers/CorrelationID'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AuthorizeResponse'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '402':
+          $ref: '#/components/responses/PaymentRequired'
+
+  /api/payments/capture:
+    post:
+      tags: [Payments]
+      summary: Capture authorized payment
+      description: Capture a previously authorized payment
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CaptureRequest'
+      responses:
+        '200':
+          description: Payment captured successfully
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CaptureResponse'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+  /api/payments/void:
+    post:
+      tags: [Payments]
+      summary: Void payment
+      description: Void an uncaptured authorization
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/VoidRequest'
+      responses:
+        '200':
+          description: Payment voided successfully
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/VoidResponse'
+
+  /api/payments/refund:
+    post:
+      tags: [Payments]
+      summary: Refund payment
+      description: Process full or partial refund
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/RefundRequest'
+      responses:
+        '200':
+          description: Refund processed successfully
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/RefundResponse'
+
+  /api/payments/methods:
+    get:
+      tags: [Payments]
+      summary: List payment methods
+      description: Get available payment methods and their capabilities
+      responses:
+        '200':
+          description: Payment methods retrieved successfully
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PaymentMethodsResponse'
+
+  # Subscription Management
+  /api/subscriptions:
+    post:
+      tags: [Subscriptions]
+      summary: Create subscription
+      description: Create a new recurring subscription
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateSubscriptionRequest'
+      responses:
+        '201':
+          description: Subscription created successfully
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SubscriptionResponse'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+
+    get:
+      tags: [Subscriptions]
+      summary: List subscriptions
+      description: Get list of subscriptions with filtering options
+      parameters:
+        - name: status
+          in: query
+          schema:
+            $ref: '#/components/schemas/SubscriptionStatus'
+        - name: customer_id
+          in: query
+          schema:
+            type: string
+            format: uuid
+        - name: limit
+          in: query
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 100
+            default: 20
+        - name: offset
+          in: query
+          schema:
+            type: integer
+            minimum: 0
+            default: 0
+      responses:
+        '200':
+          description: Subscriptions retrieved successfully
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SubscriptionListResponse'
+
+  /api/subscriptions/{id}:
+    get:
+      tags: [Subscriptions]
+      summary: Get subscription
+      description: Retrieve subscription details
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        '200':
+          description: Subscription retrieved successfully
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SubscriptionResponse'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+    put:
+      tags: [Subscriptions]
+      summary: Update subscription
+      description: Update subscription details
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UpdateSubscriptionRequest'
+      responses:
+        '200':
+          description: Subscription updated successfully
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SubscriptionResponse'
+
+    delete:
+      tags: [Subscriptions]
+      summary: Cancel subscription
+      description: Cancel an active subscription
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        '200':
+          description: Subscription cancelled successfully
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SubscriptionResponse'
+
+  /api/subscriptions/{id}/pause:
+    post:
+      tags: [Subscriptions]
+      summary: Pause subscription
+      description: Temporarily pause an active subscription
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/PauseSubscriptionRequest'
+      responses:
+        '200':
+          description: Subscription paused successfully
+
+  /api/subscriptions/{id}/resume:
+    post:
+      tags: [Subscriptions]
+      summary: Resume subscription
+      description: Resume a paused subscription
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        '200':
+          description: Subscription resumed successfully
+
+  # Webhook Management
+  /api/webhooks/endpoints:
+    post:
+      tags: [Webhooks]
+      summary: Create webhook endpoint
+      description: Register a new webhook endpoint
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateWebhookRequest'
+      responses:
+        '201':
+          description: Webhook endpoint created successfully
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/WebhookResponse'
+
+    get:
+      tags: [Webhooks]
+      summary: List webhook endpoints
+      description: Get list of registered webhook endpoints
+      responses:
+        '200':
+          description: Webhook endpoints retrieved successfully
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/WebhookListResponse'
+
+  /api/webhooks/endpoints/{id}:
+    get:
+      tags: [Webhooks]
+      summary: Get webhook endpoint
+      description: Retrieve webhook endpoint details
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        '200':
+          description: Webhook endpoint retrieved successfully
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/WebhookResponse'
+
+    put:
+      tags: [Webhooks]
+      summary: Update webhook endpoint
+      description: Update webhook endpoint configuration
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UpdateWebhookRequest'
+      responses:
+        '200':
+          description: Webhook endpoint updated successfully
+
+    delete:
+      tags: [Webhooks]
+      summary: Delete webhook endpoint
+      description: Remove webhook endpoint registration
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        '204':
+          description: Webhook endpoint deleted successfully
+
+  /api/webhooks/endpoints/{id}/test:
+    post:
+      tags: [Webhooks]
+      summary: Test webhook endpoint
+      description: Send test event to webhook endpoint
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        '200':
+          description: Test webhook sent successfully
+
+  /api/webhooks/deliveries:
+    get:
+      tags: [Webhooks]
+      summary: List webhook deliveries
+      description: Get webhook delivery history with status
+      parameters:
+        - name: endpoint_id
+          in: query
+          schema:
+            type: string
+            format: uuid
+        - name: status
+          in: query
+          schema:
+            $ref: '#/components/schemas/DeliveryStatus'
+        - name: limit
+          in: query
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 100
+            default: 20
+      responses:
+        '200':
+          description: Webhook deliveries retrieved successfully
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/WebhookDeliveryListResponse'
+
+  # Database Operations
+  /api/database/health:
+    get:
+      tags: [Database]
+      summary: Database health check
+      description: Check database connectivity and performance
+      security:
+        - ApiKeyAuth: [admin]
+      responses:
+        '200':
+          description: Database is healthy
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DatabaseHealthResponse'
+
+  /api/database/migrations:
+    get:
+      tags: [Database]
+      summary: Migration status
+      description: Get database migration status
+      security:
+        - ApiKeyAuth: [admin]
+      responses:
+        '200':
+          description: Migration status retrieved successfully
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/MigrationStatusResponse'
+
+  /api/database/stats:
+    get:
+      tags: [Database]
+      summary: Database statistics
+      description: Get database performance and usage statistics
+      security:
+        - ApiKeyAuth: [admin]
+      responses:
+        '200':
+          description: Database statistics retrieved successfully
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DatabaseStatsResponse'
+
+  /api/database/customers:
+    post:
+      tags: [Database]
+      summary: Create customer
+      description: Create a new customer record
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateCustomerRequest'
+      responses:
+        '201':
+          description: Customer created successfully
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CustomerResponse'
+
+  /api/database/customers/{id}:
+    get:
+      tags: [Database]
+      summary: Get customer
+      description: Retrieve customer details
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        '200':
+          description: Customer retrieved successfully
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CustomerResponse'
+
+  /api/database/orders:
+    post:
+      tags: [Database]
+      summary: Create order
+      description: Create a new order record
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateOrderRequest'
+      responses:
+        '201':
+          description: Order created successfully
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/OrderResponse'
+
+  /api/database/orders/{id}:
+    get:
+      tags: [Database]
+      summary: Get order
+      description: Retrieve order details
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        '200':
+          description: Order retrieved successfully
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/OrderResponse'
+
+  /api/database/transactions:
+    post:
+      tags: [Database]
+      summary: Create transaction
+      description: Create a new transaction record
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateTransactionRequest'
+      responses:
+        '201':
+          description: Transaction created successfully
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TransactionResponse'
+
+  /api/database/transactions/{id}:
+    get:
+      tags: [Database]
+      summary: Get transaction
+      description: Retrieve transaction details
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        '200':
+          description: Transaction retrieved successfully
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TransactionResponse'
+
+  # Queue Management
+  /api/queues/health:
+    get:
+      tags: [Queues]
+      summary: Queue system health
+      description: Check queue system health and status
+      security:
+        - ApiKeyAuth: [admin]
+      responses:
+        '200':
+          description: Queue system is healthy
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/QueueHealthResponse'
+
+  /api/queues/stats:
+    get:
+      tags: [Queues]
+      summary: Queue statistics
+      description: Get queue processing statistics
+      security:
+        - ApiKeyAuth: [admin]
+      responses:
+        '200':
+          description: Queue statistics retrieved successfully
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/QueueStatsResponse'
+
+  /api/queues/info:
+    get:
+      tags: [Queues]
+      summary: Queue system information
+      description: Get queue system configuration and status
+      security:
+        - ApiKeyAuth: [admin]
+      responses:
+        '200':
+          description: Queue information retrieved successfully
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/QueueInfoResponse'
+
+  /api/queues/pause:
+    post:
+      tags: [Queues]
+      summary: Pause queue processing
+      description: Temporarily pause job processing
+      security:
+        - ApiKeyAuth: [admin]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                queueName:
+                  type: string
+                  description: Name of queue to pause (omit for all queues)
+      responses:
+        '200':
+          description: Queue processing paused successfully
+
+  /api/queues/resume:
+    post:
+      tags: [Queues]
+      summary: Resume queue processing
+      description: Resume paused job processing
+      security:
+        - ApiKeyAuth: [admin]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                queueName:
+                  type: string
+                  description: Name of queue to resume (omit for all queues)
+      responses:
+        '200':
+          description: Queue processing resumed successfully
+
+  /api/queues/clear:
+    delete:
+      tags: [Queues]
+      summary: Clear queue jobs
+      description: Remove all jobs from specified queue
+      security:
+        - ApiKeyAuth: [admin]
+      parameters:
+        - name: queueName
+          in: query
+          required: true
+          schema:
+            type: string
+            description: Name of queue to clear
+      responses:
+        '200':
+          description: Queue cleared successfully
+
+  # Distributed Tracing
+  /api/tracing/stats:
+    get:
+      tags: [Tracing]
+      summary: Tracing statistics
+      description: Get distributed tracing metrics and performance data
+      security:
+        - ApiKeyAuth: [admin]
+      responses:
+        '200':
+          description: Tracing statistics retrieved successfully
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TracingStatsResponse'
+
+  /api/tracing/active:
+    get:
+      tags: [Tracing]
+      summary: Active requests
+      description: Get currently active traced requests
+      security:
+        - ApiKeyAuth: [admin]
+      responses:
+        '200':
+          description: Active requests retrieved successfully
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ActiveRequestsResponse'
+
+components:
+  securitySchemes:
+    ApiKeyAuth:
+      type: apiKey
+      in: header
+      name: X-API-Key
+
+  headers:
+    CorrelationID:
+      description: Correlation ID for request tracing
+      schema:
+        type: string
+        pattern: '^corr_[a-z0-9]+_[a-z0-9]+$'
+        example: 'corr_1234567890_abcdef123456'
+
+  responses:
+    BadRequest:
+      description: Invalid request parameters
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
+
+    NotFound:
+      description: Resource not found
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
+
+    PaymentRequired:
+      description: Payment failed - insufficient funds or declined
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/PaymentErrorResponse'
+
+    RateLimited:
+      description: Rate limit exceeded
+      headers:
+        X-RateLimit-Limit:
+          schema:
+            type: integer
+          description: Request limit per hour
+        X-RateLimit-Remaining:
+          schema:
+            type: integer
+          description: Remaining requests in current window
+        X-RateLimit-Reset:
+          schema:
+            type: integer
+          description: Time when rate limit resets (Unix timestamp)
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
+
+    InternalError:
+      description: Internal server error
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
+
+  schemas:
+    # Base Schemas
+    ErrorResponse:
+      type: object
+      properties:
+        error:
+          type: string
+          description: Error type
+        message:
+          type: string
+          description: Human-readable error message
+        correlationId:
+          type: string
+          description: Request correlation ID
+        timestamp:
+          type: string
+          format: date-time
+        details:
+          type: object
+          description: Additional error details
+      required: [error, message, correlationId, timestamp]
+
+    PaymentErrorResponse:
+      allOf:
+        - $ref: '#/components/schemas/ErrorResponse'
+        - type: object
+          properties:
+            paymentError:
+              type: object
+              properties:
+                code:
+                  type: string
+                  enum: [insufficient_funds, card_declined, invalid_card, expired_card]
+                gatewayCode:
+                  type: string
+                  description: Gateway-specific error code
+                gatewayMessage:
+                  type: string
+                  description: Gateway error message
+
+    # System Schemas
+    HealthResponse:
+      type: object
+      properties:
+        status:
+          type: string
+          enum: [healthy, degraded, unhealthy]
+        timestamp:
+          type: string
+          format: date-time
+        version:
+          type: string
+          example: '3.0.0'
+        uptime:
+          type: number
+          description: Uptime in seconds
+        correlationId:
+          type: string
+        services:
+          type: object
+          properties:
+            database:
+              type: string
+              enum: [operational, degraded, failed]
+            queues:
+              type: string
+              enum: [operational, degraded, failed]
+            payment_gateway:
+              type: string
+              enum: [operational, degraded, failed]
+        features:
+          type: object
+          properties:
+            distributed_tracing:
+              type: boolean
+            queue_based_processing:
+              type: boolean
+            database_persistence:
+              type: boolean
+        database:
+          type: object
+          properties:
+            connected:
+              type: boolean
+            totalConnections:
+              type: integer
+            idleConnections:
+              type: integer
+            host:
+              type: string
+            database:
+              type: string
+
+    # Payment Schemas
+    PaymentRequest:
+      type: object
+      properties:
+        amount:
+          type: number
+          format: decimal
+          minimum: 0.01
+          example: 99.99
+        currency:
+          type: string
+          pattern: '^[A-Z]{3}$'
+          example: 'USD'
+        paymentMethod:
+          $ref: '#/components/schemas/PaymentMethod'
+        customer:
+          $ref: '#/components/schemas/CustomerInfo'
+        description:
+          type: string
+          maxLength: 500
+          example: 'Order #12345'
+        metadata:
+          type: object
+          description: Additional custom data
+        idempotencyKey:
+          type: string
+          description: Unique key to prevent duplicate processing
+          example: 'order_12345_attempt_1'
+      required: [amount, currency, paymentMethod]
+
+    PaymentMethod:
+      type: object
+      properties:
+        type:
+          type: string
+          enum: [card, bank_account, wallet]
+        card:
+          $ref: '#/components/schemas/CardDetails'
+        bankAccount:
+          $ref: '#/components/schemas/BankAccountDetails'
+        wallet:
+          $ref: '#/components/schemas/WalletDetails'
+      required: [type]
+
+    CardDetails:
+      type: object
+      properties:
+        number:
+          type: string
+          pattern: '^[0-9]{13,19}$'
+          example: '4111111111111111'
+        expiryMonth:
+          type: integer
+          minimum: 1
+          maximum: 12
+          example: 12
+        expiryYear:
+          type: integer
+          minimum: 2024
+          example: 2025
+        cvv:
+          type: string
+          pattern: '^[0-9]{3,4}$'
+          example: '123'
+        holderName:
+          type: string
+          example: 'John Doe'
+      required: [number, expiryMonth, expiryYear, cvv]
+
+    BankAccountDetails:
+      type: object
+      properties:
+        accountNumber:
+          type: string
+        routingNumber:
+          type: string
+        accountType:
+          type: string
+          enum: [checking, savings]
+        accountHolderName:
+          type: string
+      required: [accountNumber, routingNumber, accountType]
+
+    WalletDetails:
+      type: object
+      properties:
+        provider:
+          type: string
+          enum: [paypal, apple_pay, google_pay]
+        walletId:
+          type: string
+        token:
+          type: string
+      required: [provider, walletId]
+
+    CustomerInfo:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        email:
+          type: string
+          format: email
+          example: 'john.doe@example.com'
+        firstName:
+          type: string
+          example: 'John'
+        lastName:
+          type: string
+          example: 'Doe'
+        phone:
+          type: string
+          example: '+1234567890'
+        address:
+          $ref: '#/components/schemas/Address'
+
+    Address:
+      type: object
+      properties:
+        line1:
+          type: string
+          example: '123 Main St'
+        line2:
+          type: string
+          example: 'Apt 4B'
+        city:
+          type: string
+          example: 'New York'
+        state:
+          type: string
+          example: 'NY'
+        postalCode:
+          type: string
+          example: '10001'
+        country:
+          type: string
+          pattern: '^[A-Z]{2}$'
+          example: 'US'
+      required: [line1, city, state, postalCode, country]
+
+    PaymentResponse:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        status:
+          $ref: '#/components/schemas/PaymentStatus'
+        amount:
+          type: number
+          format: decimal
+        currency:
+          type: string
+        gatewayTransactionId:
+          type: string
+        paymentMethod:
+          type: object
+          properties:
+            type:
+              type: string
+            last4:
+              type: string
+            brand:
+              type: string
+        createdAt:
+          type: string
+          format: date-time
+        correlationId:
+          type: string
+        metadata:
+          type: object
+      required: [id, status, amount, currency, createdAt, correlationId]
+
+    PaymentStatus:
+      type: string
+      enum: [pending, processing, succeeded, failed, cancelled, refunded, partially_refunded]
+
+    AuthorizeRequest:
+      allOf:
+        - $ref: '#/components/schemas/PaymentRequest'
+        - type: object
+          properties:
+            captureMethod:
+              type: string
+              enum: [automatic, manual]
+              default: manual
+
+    AuthorizeResponse:
+      allOf:
+        - $ref: '#/components/schemas/PaymentResponse'
+        - type: object
+          properties:
+            authorizationCode:
+              type: string
+            expiresAt:
+              type: string
+              format: date-time
+
+    CaptureRequest:
+      type: object
+      properties:
+        paymentId:
+          type: string
+          format: uuid
+        amount:
+          type: number
+          format: decimal
+          description: Amount to capture (defaults to full authorized amount)
+      required: [paymentId]
+
+    CaptureResponse:
+      $ref: '#/components/schemas/PaymentResponse'
+
+    VoidRequest:
+      type: object
+      properties:
+        paymentId:
+          type: string
+          format: uuid
+        reason:
+          type: string
+          maxLength: 500
+      required: [paymentId]
+
+    VoidResponse:
+      $ref: '#/components/schemas/PaymentResponse'
+
+    RefundRequest:
+      type: object
+      properties:
+        paymentId:
+          type: string
+          format: uuid
+        amount:
+          type: number
+          format: decimal
+          description: Refund amount (defaults to full payment amount)
+        reason:
+          type: string
+          maxLength: 500
+        metadata:
+          type: object
+      required: [paymentId]
+
+    RefundResponse:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        paymentId:
+          type: string
+          format: uuid
+        status:
+          type: string
+          enum: [pending, succeeded, failed]
+        amount:
+          type: number
+          format: decimal
+        currency:
+          type: string
+        reason:
+          type: string
+        createdAt:
+          type: string
+          format: date-time
+        correlationId:
+          type: string
+
+    PaymentMethodsResponse:
+      type: object
+      properties:
+        methods:
+          type: array
+          items:
+            type: object
+            properties:
+              type:
+                type: string
+              name:
+                type: string
+              currencies:
+                type: array
+                items:
+                  type: string
+              features:
+                type: array
+                items:
+                  type: string
+              processingTime:
+                type: string
+
+    # Subscription Schemas
+    CreateSubscriptionRequest:
+      type: object
+      properties:
+        customerId:
+          type: string
+          format: uuid
+        planId:
+          type: string
+        paymentMethod:
+          $ref: '#/components/schemas/PaymentMethod'
+        billingCycle:
+          type: string
+          enum: [weekly, monthly, quarterly, yearly]
+        amount:
+          type: number
+          format: decimal
+        currency:
+          type: string
+        startDate:
+          type: string
+          format: date-time
+        trialPeriodDays:
+          type: integer
+          minimum: 0
+        metadata:
+          type: object
+      required: [customerId, planId, paymentMethod, billingCycle, amount, currency]
+
+    UpdateSubscriptionRequest:
+      type: object
+      properties:
+        planId:
+          type: string
+        paymentMethod:
+          $ref: '#/components/schemas/PaymentMethod'
+        billingCycle:
+          type: string
+          enum: [weekly, monthly, quarterly, yearly]
+        amount:
+          type: number
+          format: decimal
+        metadata:
+          type: object
+
+    SubscriptionResponse:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        customerId:
+          type: string
+          format: uuid
+        planId:
+          type: string
+        status:
+          $ref: '#/components/schemas/SubscriptionStatus'
+        billingCycle:
+          type: string
+        amount:
+          type: number
+          format: decimal
+        currency:
+          type: string
+        currentPeriodStart:
+          type: string
+          format: date-time
+        currentPeriodEnd:
+          type: string
+          format: date-time
+        nextBillingDate:
+          type: string
+          format: date-time
+        trialEnd:
+          type: string
+          format: date-time
+        createdAt:
+          type: string
+          format: date-time
+        updatedAt:
+          type: string
+          format: date-time
+        metadata:
+          type: object
+
+    SubscriptionStatus:
+      type: string
+      enum: [active, paused, past_due, cancelled, trialing]
+
+    SubscriptionListResponse:
+      type: object
+      properties:
+        subscriptions:
+          type: array
+          items:
+            $ref: '#/components/schemas/SubscriptionResponse'
+        pagination:
+          $ref: '#/components/schemas/PaginationInfo'
+
+    PauseSubscriptionRequest:
+      type: object
+      properties:
+        resumeDate:
+          type: string
+          format: date-time
+          description: When to automatically resume (optional)
+        reason:
+          type: string
+          maxLength: 500
+
+    # Webhook Schemas
+    CreateWebhookRequest:
+      type: object
+      properties:
+        url:
+          type: string
+          format: uri
+          example: 'https://api.merchant.com/webhooks'
+        events:
+          type: array
+          items:
+            $ref: '#/components/schemas/WebhookEvent'
+          minItems: 1
+        secret:
+          type: string
+          description: Secret for webhook signature verification
+        active:
+          type: boolean
+          default: true
+        description:
+          type: string
+          maxLength: 500
+      required: [url, events]
+
+    UpdateWebhookRequest:
+      type: object
+      properties:
+        url:
+          type: string
+          format: uri
+        events:
+          type: array
+          items:
+            $ref: '#/components/schemas/WebhookEvent'
+        secret:
+          type: string
+        active:
+          type: boolean
+        description:
+          type: string
+          maxLength: 500
+
+    WebhookResponse:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        url:
+          type: string
+          format: uri
+        events:
+          type: array
+          items:
+            $ref: '#/components/schemas/WebhookEvent'
+        active:
+          type: boolean
+        description:
+          type: string
+        createdAt:
+          type: string
+          format: date-time
+        updatedAt:
+          type: string
+          format: date-time
+        statistics:
+          type: object
+          properties:
+            totalDeliveries:
+              type: integer
+            successfulDeliveries:
+              type: integer
+            failedDeliveries:
+              type: integer
+            lastDeliveryAt:
+              type: string
+              format: date-time
+
+    WebhookListResponse:
+      type: object
+      properties:
+        webhooks:
+          type: array
+          items:
+            $ref: '#/components/schemas/WebhookResponse'
+        pagination:
+          $ref: '#/components/schemas/PaginationInfo'
+
+    WebhookEvent:
+      type: string
+      enum:
+        - payment.succeeded
+        - payment.failed
+        - payment.refunded
+        - subscription.created
+        - subscription.updated
+        - subscription.cancelled
+        - subscription.payment_succeeded
+        - subscription.payment_failed
+        - customer.created
+        - customer.updated
+
+    WebhookDeliveryListResponse:
+      type: object
+      properties:
+        deliveries:
+          type: array
+          items:
+            type: object
+            properties:
+              id:
+                type: string
+                format: uuid
+              webhookId:
+                type: string
+                format: uuid
+              event:
+                $ref: '#/components/schemas/WebhookEvent'
+              status:
+                $ref: '#/components/schemas/DeliveryStatus'
+              attempts:
+                type: integer
+              lastAttemptAt:
+                type: string
+                format: date-time
+              nextRetryAt:
+                type: string
+                format: date-time
+              responseCode:
+                type: integer
+              responseTime:
+                type: integer
+                description: Response time in milliseconds
+              createdAt:
+                type: string
+                format: date-time
+        pagination:
+          $ref: '#/components/schemas/PaginationInfo'
+
+    DeliveryStatus:
+      type: string
+      enum: [pending, succeeded, failed, retrying]
+
+    # Database Schemas
+    DatabaseHealthResponse:
+      type: object
+      properties:
+        status:
+          type: string
+          enum: [healthy, degraded, unhealthy]
+        connected:
+          type: boolean
+        connectionPool:
+          type: object
+          properties:
+            total:
+              type: integer
+            active:
+              type: integer
+            idle:
+              type: integer
+            waiting:
+              type: integer
+        responseTime:
+          type: integer
+          description: Database response time in milliseconds
+        lastChecked:
+          type: string
+          format: date-time
+
+    MigrationStatusResponse:
+      type: object
+      properties:
+        applied:
+          type: array
+          items:
+            type: object
+            properties:
+              version:
+                type: string
+              appliedAt:
+                type: string
+                format: date-time
+              checksum:
+                type: string
+        pending:
+          type: array
+          items:
+            type: string
+        status:
+          type: string
+          enum: [up_to_date, pending_migrations, migration_needed]
+
+    DatabaseStatsResponse:
+      type: object
+      properties:
+        tables:
+          type: object
+          additionalProperties:
+            type: object
+            properties:
+              rowCount:
+                type: integer
+              sizeBytes:
+                type: integer
+        connections:
+          type: object
+          properties:
+            current:
+              type: integer
+            max:
+              type: integer
+            utilization:
+              type: number
+              format: percentage
+        queries:
+          type: object
+          properties:
+            total:
+              type: integer
+            averageTime:
+              type: number
+              description: Average query time in milliseconds
+            slowQueries:
+              type: integer
+
+    CreateCustomerRequest:
+      type: object
+      properties:
+        email:
+          type: string
+          format: email
+        firstName:
+          type: string
+        lastName:
+          type: string
+        phone:
+          type: string
+        address:
+          $ref: '#/components/schemas/Address'
+        metadata:
+          type: object
+      required: [email]
+
+    CustomerResponse:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        email:
+          type: string
+          format: email
+        firstName:
+          type: string
+        lastName:
+          type: string
+        phone:
+          type: string
+        address:
+          $ref: '#/components/schemas/Address'
+        metadata:
+          type: object
+        createdAt:
+          type: string
+          format: date-time
+        updatedAt:
+          type: string
+          format: date-time
+
+    CreateOrderRequest:
+      type: object
+      properties:
+        customerId:
+          type: string
+          format: uuid
+        amount:
+          type: number
+          format: decimal
+        currency:
+          type: string
+        status:
+          type: string
+          enum: [pending, processing, completed, cancelled]
+          default: pending
+        metadata:
+          type: object
+      required: [customerId, amount, currency]
+
+    OrderResponse:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        customerId:
+          type: string
+          format: uuid
+        amount:
+          type: number
+          format: decimal
+        currency:
+          type: string
+        status:
+          type: string
+        metadata:
+          type: object
+        createdAt:
+          type: string
+          format: date-time
+        updatedAt:
+          type: string
+          format: date-time
+
+    CreateTransactionRequest:
+      type: object
+      properties:
+        orderId:
+          type: string
+          format: uuid
+        transactionType:
+          type: string
+          enum: [purchase, authorize, capture, void, refund]
+        amount:
+          type: number
+          format: decimal
+        currency:
+          type: string
+        status:
+          $ref: '#/components/schemas/PaymentStatus'
+        gatewayTransactionId:
+          type: string
+        paymentMethod:
+          type: object
+          properties:
+            type:
+              type: string
+            last4:
+              type: string
+            brand:
+              type: string
+      required: [orderId, transactionType, amount, currency, status, paymentMethod]
+
+    TransactionResponse:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        orderId:
+          type: string
+          format: uuid
+        transactionType:
+          type: string
+        amount:
+          type: number
+          format: decimal
+        currency:
+          type: string
+        status:
+          $ref: '#/components/schemas/PaymentStatus'
+        gatewayTransactionId:
+          type: string
+        paymentMethod:
+          type: object
+        createdAt:
+          type: string
+          format: date-time
+        updatedAt:
+          type: string
+          format: date-time
+
+    # Queue Schemas
+    QueueHealthResponse:
+      type: object
+      properties:
+        status:
+          type: string
+          enum: [healthy, degraded, unhealthy]
+        queues:
+          type: array
+          items:
+            type: object
+            properties:
+              name:
+                type: string
+              status:
+                type: string
+                enum: [active, paused, failed]
+              depth:
+                type: integer
+              processing:
+                type: integer
+        redis:
+          type: object
+          properties:
+            connected:
+              type: boolean
+            memory:
+              type: integer
+            clients:
+              type: integer
+        lastChecked:
+          type: string
+          format: date-time
+
+    QueueStatsResponse:
+      type: object
+      properties:
+        overview:
+          type: object
+          properties:
+            totalJobs:
+              type: integer
+            completedJobs:
+              type: integer
+            failedJobs:
+              type: integer
+            activeJobs:
+              type: integer
+            waitingJobs:
+              type: integer
+        queues:
+          type: object
+          additionalProperties:
+            type: object
+            properties:
+              completed:
+                type: integer
+              failed:
+                type: integer
+              waiting:
+                type: integer
+              active:
+                type: integer
+              delayed:
+                type: integer
+        performance:
+          type: object
+          properties:
+            averageProcessingTime:
+              type: number
+            jobThroughput:
+              type: number
+            peakConcurrency:
+              type: integer
+        timeRange:
+          type: string
+          description: Time range for statistics (e.g., "24h")
+
+    QueueInfoResponse:
+      type: object
+      properties:
+        driver:
+          type: string
+          enum: [redis, memory]
+        configuration:
+          type: object
+          properties:
+            maxConcurrency:
+              type: integer
+            retryAttempts:
+              type: integer
+            retryDelay:
+              type: integer
+            jobTimeout:
+              type: integer
+        queues:
+          type: array
+          items:
+            type: object
+            properties:
+              name:
+                type: string
+              type:
+                type: string
+              workers:
+                type: integer
+              concurrency:
+                type: integer
+        uptime:
+          type: integer
+          description: Queue system uptime in seconds
+
+    # Tracing Schemas
+    TracingStatsResponse:
+      type: object
+      properties:
+        overview:
+          type: object
+          properties:
+            totalRequests:
+              type: integer
+            averageResponseTime:
+              type: number
+            p95ResponseTime:
+              type: number
+            errorRate:
+              type: number
+              format: percentage
+        endpoints:
+          type: object
+          additionalProperties:
+            type: object
+            properties:
+              requestCount:
+                type: integer
+              averageTime:
+                type: number
+              errorRate:
+                type: number
+        services:
+          type: object
+          additionalProperties:
+            type: object
+            properties:
+              callCount:
+                type: integer
+              averageTime:
+                type: number
+              errorCount:
+                type: integer
+        timeRange:
+          type: string
+
+    ActiveRequestsResponse:
+      type: object
+      properties:
+        requests:
+          type: array
+          items:
+            type: object
+            properties:
+              correlationId:
+                type: string
+              requestId:
+                type: string
+              method:
+                type: string
+              url:
+                type: string
+              startTime:
+                type: string
+                format: date-time
+              duration:
+                type: integer
+                description: Current duration in milliseconds
+              userAgent:
+                type: string
+        count:
+          type: integer
+        timestamp:
+          type: string
+          format: date-time
+
+    # Common Schemas
+    PaginationInfo:
+      type: object
+      properties:
+        limit:
+          type: integer
+        offset:
+          type: integer
+        total:
+          type: integer
+        hasMore:
+          type: boolean
+
+tags:
+  - name: System
+    description: System health and status endpoints
+  - name: Payments
+    description: Payment processing operations
+  - name: Subscriptions
+    description: Recurring subscription management
+  - name: Webhooks
+    description: Webhook endpoint management and delivery
+  - name: Database
+    description: Direct database operations and management
+  - name: Queues
+    description: Background job queue management
+  - name: Tracing
+    description: Distributed tracing and monitoring
+
+externalDocs:
+  description: Complete API Documentation
+  url: https://docs.paymentprocessing.com
