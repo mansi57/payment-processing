@@ -1,0 +1,258 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Payment Processing System - Admin Dashboard</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: #333;
+            min-height: 100vh;
+            display: flex;
+            flex-direction: column;
+        }
+
+        .header {
+            background: rgba(255, 255, 255, 0.95);
+            backdrop-filter: blur(10px);
+            padding: 1rem 2rem;
+            box-shadow: 0 2px 20px rgba(0,0,0,0.1);
+        }
+
+        .header h1 {
+            color: #333;
+            font-weight: 600;
+        }
+
+        .header p {
+            color: #666;
+            margin-top: 0.5rem;
+        }
+
+        .container {
+            flex: 1;
+            padding: 2rem;
+            max-width: 1200px;
+            margin: 0 auto;
+            width: 100%;
+        }
+
+        .dashboard-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+            gap: 1.5rem;
+            margin-top: 2rem;
+        }
+
+        .card {
+            background: rgba(255, 255, 255, 0.95);
+            backdrop-filter: blur(10px);
+            border-radius: 12px;
+            padding: 1.5rem;
+            box-shadow: 0 8px 32px rgba(0,0,0,0.1);
+            border: 1px solid rgba(255,255,255,0.2);
+        }
+
+        .card h2 {
+            color: #333;
+            margin-bottom: 1rem;
+            font-size: 1.2rem;
+        }
+
+        .status-indicator {
+            display: inline-block;
+            width: 12px;
+            height: 12px;
+            border-radius: 50%;
+            margin-right: 8px;
+        }
+
+        .status-healthy { background-color: #10b981; }
+        .status-warning { background-color: #f59e0b; }
+        .status-error { background-color: #ef4444; }
+
+        .btn {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            border: none;
+            padding: 0.75rem 1.5rem;
+            border-radius: 8px;
+            cursor: pointer;
+            font-weight: 500;
+            text-decoration: none;
+            display: inline-block;
+            margin-right: 0.5rem;
+            margin-bottom: 0.5rem;
+            transition: transform 0.2s;
+        }
+
+        .btn:hover {
+            transform: translateY(-2px);
+        }
+
+        .api-endpoint {
+            background: #f8fafc;
+            border: 1px solid #e2e8f0;
+            border-radius: 6px;
+            padding: 0.75rem;
+            margin: 0.5rem 0;
+            font-family: 'Monaco', 'Menlo', 'Ubuntu Mono', monospace;
+            font-size: 0.9rem;
+        }
+
+        .method-get { border-left: 4px solid #10b981; }
+        .method-post { border-left: 4px solid #3b82f6; }
+        .method-put { border-left: 4px solid #f59e0b; }
+        .method-delete { border-left: 4px solid #ef4444; }
+
+        .footer {
+            text-align: center;
+            padding: 1rem;
+            color: rgba(255, 255, 255, 0.8);
+        }
+
+        @media (max-width: 768px) {
+            .container {
+                padding: 1rem;
+            }
+            
+            .header {
+                padding: 1rem;
+            }
+        }
+    </style>
+</head>
+<body>
+    <div class="header">
+        <h1>🚀 Advanced Payment Processing System</h1>
+        <p>Enterprise-grade payment processing with distributed tracing, queue management, and comprehensive monitoring</p>
+    </div>
+
+    <div class="container">
+        <div class="dashboard-grid">
+            <!-- System Health -->
+            <div class="card">
+                <h2>📊 System Health</h2>
+                <div id="health-status">
+                    <div class="status-indicator status-healthy"></div>
+                    <span>Loading system status...</span>
+                </div>
+                <div style="margin-top: 1rem;">
+                    <a href="/api/health" class="btn" target="_blank">Health Check</a>
+                    <a href="/api/tracing/stats" class="btn" target="_blank">Tracing Stats</a>
+                </div>
+            </div>
+
+            <!-- Database Operations -->
+            <div class="card">
+                <h2>🗄️ Database Operations</h2>
+                <div class="api-endpoint method-get">GET /api/database/health</div>
+                <div class="api-endpoint method-get">GET /api/database/stats</div>
+                <div class="api-endpoint method-get">GET /api/database/migrations</div>
+                <div style="margin-top: 1rem;">
+                    <a href="/api/database/health" class="btn" target="_blank">DB Health</a>
+                    <a href="/api/database/stats" class="btn" target="_blank">DB Stats</a>
+                </div>
+            </div>
+
+            <!-- Queue Management -->
+            <div class="card">
+                <h2>📊 Queue System</h2>
+                <div class="api-endpoint method-get">GET /api/queues/health</div>
+                <div class="api-endpoint method-get">GET /api/queues/stats</div>
+                <div class="api-endpoint method-get">GET /api/queues/info</div>
+                <div style="margin-top: 1rem;">
+                    <a href="/api/queues/health" class="btn" target="_blank">Queue Health</a>
+                    <a href="/api/queues/stats" class="btn" target="_blank">Queue Stats</a>
+                </div>
+            </div>
+
+            <!-- Payment Processing -->
+            <div class="card">
+                <h2>💳 Payment Processing</h2>
+                <div class="api-endpoint method-post">POST /api/payments/purchase</div>
+                <div class="api-endpoint method-post">POST /api/payments/authorize</div>
+                <div class="api-endpoint method-post">POST /api/payments/refund</div>
+                <div class="api-endpoint method-get">GET /api/payments/methods</div>
+                <div style="margin-top: 1rem;">
+                    <a href="#" class="btn" onclick="testPayment()">Test Payment</a>
+                </div>
+            </div>
+
+            <!-- Webhooks -->
+            <div class="card">
+                <h2>🔗 Webhook Management</h2>
+                <div class="api-endpoint method-get">GET /api/webhooks/endpoints</div>
+                <div class="api-endpoint method-post">POST /api/webhooks/endpoints</div>
+                <div class="api-endpoint method-get">GET /api/webhooks/deliveries</div>
+                <div style="margin-top: 1rem;">
+                    <a href="/api/webhooks/endpoints" class="btn" target="_blank">View Webhooks</a>
+                </div>
+            </div>
+
+            <!-- Monitoring Links -->
+            <div class="card">
+                <h2>📈 Monitoring & Analytics</h2>
+                <div style="margin-bottom: 1rem;">
+                    <p>Access monitoring dashboards and metrics:</p>
+                </div>
+                <a href="http://localhost:9090" class="btn" target="_blank">Prometheus</a>
+                <a href="http://localhost:3001" class="btn" target="_blank">Grafana</a>
+                <a href="/api/tracing/active" class="btn" target="_blank">Active Requests</a>
+            </div>
+        </div>
+    </div>
+
+    <div class="footer">
+        <p>&copy; 2024 Advanced Payment Processing System | Enterprise Edition</p>
+    </div>
+
+    <script>
+        // Check system health on load
+        async function checkHealth() {
+            try {
+                const response = await fetch('/api/health');
+                const data = await response.json();
+                const healthElement = document.getElementById('health-status');
+                
+                if (response.ok && data.status === 'healthy') {
+                    healthElement.innerHTML = `
+                        <div class="status-indicator status-healthy"></div>
+                        <span>System Healthy - All services operational</span>
+                    `;
+                } else {
+                    healthElement.innerHTML = `
+                        <div class="status-indicator status-warning"></div>
+                        <span>System Status: ${data.status || 'Unknown'}</span>
+                    `;
+                }
+            } catch (error) {
+                const healthElement = document.getElementById('health-status');
+                healthElement.innerHTML = `
+                    <div class="status-indicator status-error"></div>
+                    <span>Unable to connect to API</span>
+                `;
+            }
+        }
+
+        // Test payment function
+        function testPayment() {
+            alert('Payment testing would require implementation of a test form. Check the API documentation for payment endpoints.');
+        }
+
+        // Load health status
+        checkHealth();
+        
+        // Refresh health status every 30 seconds
+        setInterval(checkHealth, 30000);
+    </script>
+</body>
+</html>

@@ -1,0 +1,51 @@
+global:
+  scrape_interval: 15s
+  evaluation_interval: 15s
+
+rule_files:
+  # - "first_rules.yml"
+  # - "second_rules.yml"
+
+scrape_configs:
+  # Payment Processing API
+  - job_name: 'payment-api'
+    static_configs:
+      - targets: ['payment-api:3000']
+    metrics_path: '/metrics'
+    scrape_interval: 10s
+    scrape_timeout: 5s
+
+  # PostgreSQL Database (if pg_exporter is added)
+  - job_name: 'postgres'
+    static_configs:
+      - targets: ['postgres:5432']
+    scrape_interval: 30s
+    scrape_timeout: 10s
+
+  # Redis (if redis_exporter is added)
+  - job_name: 'redis'
+    static_configs:
+      - targets: ['redis:6379']
+    scrape_interval: 30s
+    scrape_timeout: 10s
+
+  # Node.js application metrics
+  - job_name: 'node-app-metrics'
+    static_configs:
+      - targets: ['payment-api:3000']
+    metrics_path: '/api/metrics'
+    scrape_interval: 15s
+
+  # Queue Worker metrics
+  - job_name: 'queue-worker'
+    static_configs:
+      - targets: ['queue-worker:3000']
+    metrics_path: '/metrics'
+    scrape_interval: 15s
+
+  # Nginx metrics (if nginx_exporter is added)
+  - job_name: 'nginx'
+    static_configs:
+      - targets: ['admin-dashboard:80']
+    metrics_path: '/nginx_status'
+    scrape_interval: 30s

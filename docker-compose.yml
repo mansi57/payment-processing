@@ -1,0 +1,285 @@
+version: '3.8'
+
+services:
+  # PostgreSQL Database
+  postgres:
+    image: postgres:15-alpine
+    container_name: payment_processing_db
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: payment_processing
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: ${DB_PASSWORD:-payment_secure_2024}
+      POSTGRES_INITDB_ARGS: '--encoding=UTF-8 --lc-collate=C --lc-ctype=C'
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./init-db:/docker-entrypoint-initdb.d
+    networks:
+      - payment_network
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d payment_processing"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+  # Redis for Queue Management
+  redis:
+    image: redis:7-alpine
+    container_name: payment_processing_redis
+    restart: unless-stopped
+    command: >
+      redis-server 
+      --appendonly yes 
+      --requirepass ${REDIS_PASSWORD:-redis_secure_2024}
+      --maxmemory 512mb
+      --maxmemory-policy allkeys-lru
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+    networks:
+      - payment_network
+    healthcheck:
+      test: ["CMD", "redis-cli", "--raw", "incr", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+      start_period: 20s
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+  # Payment Processing API Application
+  payment-api:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      target: production
+    container_name: payment_processing_api
+    restart: unless-stopped
+    environment:
+      # Server Configuration
+      NODE_ENV: production
+      PORT: 3000
+      
+      # Database Configuration
+      DB_HOST: postgres
+      DB_PORT: 5432
+      DB_NAME: payment_processing
+      DB_USERNAME: postgres
+      DB_PASSWORD: ${DB_PASSWORD:-payment_secure_2024}
+      DB_SSL: false
+      DB_MAX_CONNECTIONS: 20
+      DB_CONNECTION_TIMEOUT: 60000
+      DB_IDLE_TIMEOUT: 10000
+      
+      # Redis/Queue Configuration
+      QUEUE_DRIVER: redis
+      REDIS_HOST: redis
+      REDIS_PORT: 6379
+      REDIS_PASSWORD: ${REDIS_PASSWORD:-redis_secure_2024}
+      
+      # Payment Gateway Configuration (Sandbox)
+      AUTHORIZE_NET_API_LOGIN_ID: ${AUTHORIZE_NET_API_LOGIN_ID:-sandbox_login}
+      AUTHORIZE_NET_TRANSACTION_KEY: ${AUTHORIZE_NET_TRANSACTION_KEY:-sandbox_key}
+      AUTHORIZE_NET_ENVIRONMENT: sandbox
+      
+      # Security Configuration
+      API_KEY: ${API_KEY:-dev_api_key_12345}
+      JWT_SECRET: ${JWT_SECRET:-jwt_secret_key_2024}
+      ENCRYPTION_KEY: ${ENCRYPTION_KEY:-encryption_key_32_chars_long}
+      
+      # Application Configuration
+      LOG_LEVEL: info
+      CORS_ORIGINS: ${CORS_ORIGINS:-http://localhost:3000,http://localhost:3001}
+      
+      # Monitoring & Observability
+      ENABLE_METRICS: true
+      ENABLE_TRACING: true
+      HEALTH_CHECK_TIMEOUT: 30000
+      
+    ports:
+      - "3000:3000"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    volumes:
+      - app_logs:/app/logs
+      - ./uploads:/app/uploads
+    networks:
+      - payment_network
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:3000/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "5"
+
+  # Queue Worker (Background Jobs)
+  queue-worker:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      target: production
+    container_name: payment_processing_worker
+    restart: unless-stopped
+    command: ["node", "dist/workers/queue-worker.js"]
+    environment:
+      # Inherit same environment as main app
+      NODE_ENV: production
+      
+      # Database Configuration
+      DB_HOST: postgres
+      DB_PORT: 5432
+      DB_NAME: payment_processing
+      DB_USERNAME: postgres
+      DB_PASSWORD: ${DB_PASSWORD:-payment_secure_2024}
+      DB_SSL: false
+      
+      # Redis/Queue Configuration
+      QUEUE_DRIVER: redis
+      REDIS_HOST: redis
+      REDIS_PORT: 6379
+      REDIS_PASSWORD: ${REDIS_PASSWORD:-redis_secure_2024}
+      
+      # Worker Configuration
+      WORKER_CONCURRENCY: 5
+      WORKER_MAX_JOBS: 100
+      LOG_LEVEL: info
+      
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      payment-api:
+        condition: service_healthy
+    volumes:
+      - app_logs:/app/logs
+    networks:
+      - payment_network
+    healthcheck:
+      test: ["CMD", "node", "-e", "process.exit(0)"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 30s
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+  # Optional: Admin Dashboard (for monitoring)
+  admin-dashboard:
+    image: nginx:alpine
+    container_name: payment_processing_admin
+    restart: unless-stopped
+    ports:
+      - "8080:80"
+    volumes:
+      - ./admin-dashboard:/usr/share/nginx/html:ro
+      - ./nginx.conf:/etc/nginx/nginx.conf:ro
+    depends_on:
+      - payment-api
+    networks:
+      - payment_network
+    healthcheck:
+      test: ["CMD", "wget", "--quiet", "--tries=1", "--spider", "http://localhost/health"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "5m"
+        max-file: "2"
+
+  # Optional: Prometheus for Metrics Collection
+  prometheus:
+    image: prom/prometheus:latest
+    container_name: payment_processing_prometheus
+    restart: unless-stopped
+    ports:
+      - "9090:9090"
+    volumes:
+      - ./prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - prometheus_data:/prometheus
+    command:
+      - '--config.file=/etc/prometheus/prometheus.yml'
+      - '--storage.tsdb.path=/prometheus'
+      - '--web.console.libraries=/etc/prometheus/console_libraries'
+      - '--web.console.templates=/etc/prometheus/consoles'
+      - '--storage.tsdb.retention.time=200h'
+      - '--web.enable-lifecycle'
+    networks:
+      - payment_network
+    profiles:
+      - monitoring
+    depends_on:
+      - payment-api
+
+  # Optional: Grafana for Metrics Visualization
+  grafana:
+    image: grafana/grafana:latest
+    container_name: payment_processing_grafana
+    restart: unless-stopped
+    ports:
+      - "3001:3000"
+    environment:
+      GF_SECURITY_ADMIN_PASSWORD: ${GRAFANA_PASSWORD:-admin_2024}
+      GF_USERS_ALLOW_SIGN_UP: false
+    volumes:
+      - grafana_data:/var/lib/grafana
+      - ./grafana/dashboards:/etc/grafana/provisioning/dashboards
+      - ./grafana/datasources:/etc/grafana/provisioning/datasources
+    networks:
+      - payment_network
+    profiles:
+      - monitoring
+    depends_on:
+      - prometheus
+
+# Docker Networks
+networks:
+  payment_network:
+    driver: bridge
+    name: payment_processing_network
+    ipam:
+      config:
+        - subnet: 172.20.0.0/16
+
+# Docker Volumes
+volumes:
+  postgres_data:
+    driver: local
+    name: payment_processing_postgres_data
+  redis_data:
+    driver: local
+    name: payment_processing_redis_data
+  app_logs:
+    driver: local
+    name: payment_processing_logs
+  prometheus_data:
+    driver: local
+    name: payment_processing_prometheus_data
+  grafana_data:
+    driver: local
+    name: payment_processing_grafana_data
