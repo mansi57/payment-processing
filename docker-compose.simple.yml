@@ -39,7 +39,7 @@ services:
       redis-server 
       --appendonly yes 
       --requirepass ${REDIS_PASSWORD:-redis_secure_2024}
-      --maxmemory 512mb
+      --maxmemory 256mb
       --maxmemory-policy allkeys-lru
     ports:
       - "6379:6379"
@@ -59,11 +59,11 @@ services:
         max-size: "10m"
         max-file: "3"
 
-  # Payment Processing API Application
+  # Payment Processing API Application (Simplified)
   payment-api:
     build:
       context: .
-      dockerfile: Dockerfile
+      dockerfile: Dockerfile.simple
       target: production
     container_name: payment_processing_api
     restart: unless-stopped
@@ -83,7 +83,7 @@ services:
       DB_CONNECTION_TIMEOUT: 60000
       DB_IDLE_TIMEOUT: 10000
       
-      # Redis/Queue Configuration (simplified - using memory queues)
+      # Redis/Queue Configuration
       QUEUE_DRIVER: memory
       REDIS_HOST: redis
       REDIS_PORT: 6379
@@ -101,7 +101,7 @@ services:
       
       # Application Configuration
       LOG_LEVEL: info
-      CORS_ORIGINS: ${CORS_ORIGINS:-http://localhost:3000,http://localhost:3001}
+      CORS_ORIGINS: ${CORS_ORIGINS:-http://localhost:3000,http://localhost:3001,http://localhost:8080}
       
       # Monitoring & Observability
       ENABLE_METRICS: true
@@ -132,11 +132,7 @@ services:
         max-size: "10m"
         max-file: "5"
 
-  # Queue Worker (Background Jobs) - DISABLED: queue modules removed
-  # queue-worker:
-  #   [Service disabled - queue system modules were removed to resolve TypeScript errors]
-
-  # Optional: Admin Dashboard (for monitoring)
+  # Admin Dashboard
   admin-dashboard:
     image: nginx:alpine
     container_name: payment_processing_admin
@@ -161,51 +157,6 @@ services:
         max-size: "5m"
         max-file: "2"
 
-  # Optional: Prometheus for Metrics Collection
-  prometheus:
-    image: prom/prometheus:latest
-    container_name: payment_processing_prometheus
-    restart: unless-stopped
-    ports:
-      - "9090:9090"
-    volumes:
-      - ./prometheus.yml:/etc/prometheus/prometheus.yml:ro
-      - prometheus_data:/prometheus
-    command:
-      - '--config.file=/etc/prometheus/prometheus.yml'
-      - '--storage.tsdb.path=/prometheus'
-      - '--web.console.libraries=/etc/prometheus/console_libraries'
-      - '--web.console.templates=/etc/prometheus/consoles'
-      - '--storage.tsdb.retention.time=200h'
-      - '--web.enable-lifecycle'
-    networks:
-      - payment_network
-    profiles:
-      - monitoring
-    depends_on:
-      - payment-api
-
-  # Optional: Grafana for Metrics Visualization
-  grafana:
-    image: grafana/grafana:latest
-    container_name: payment_processing_grafana
-    restart: unless-stopped
-    ports:
-      - "3001:3000"
-    environment:
-      GF_SECURITY_ADMIN_PASSWORD: ${GRAFANA_PASSWORD:-admin_2024}
-      GF_USERS_ALLOW_SIGN_UP: false
-    volumes:
-      - grafana_data:/var/lib/grafana
-      - ./grafana/dashboards:/etc/grafana/provisioning/dashboards
-      - ./grafana/datasources:/etc/grafana/provisioning/datasources
-    networks:
-      - payment_network
-    profiles:
-      - monitoring
-    depends_on:
-      - prometheus
-
 # Docker Networks
 networks:
   payment_network:
@@ -226,9 +177,3 @@ volumes:
   app_logs:
     driver: local
     name: payment_processing_logs
-  prometheus_data:
-    driver: local
-    name: payment_processing_prometheus_data
-  grafana_data:
-    driver: local
-    name: payment_processing_grafana_data

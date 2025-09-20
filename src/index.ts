@@ -44,6 +44,8 @@ const initializeDatabase = async (): Promise<void> => {
 };
 
 // Queue system initialization
+// Queue system initialization (commented out - queue modules removed)
+/*
 const initializeQueueSystem = async (): Promise<void> => {
   try {
     logger.info('Initializing queue system...', 'queue', 'init');
@@ -73,6 +75,7 @@ const initializeQueueSystem = async (): Promise<void> => {
     throw error;
   }
 };
+*/
 
 // Graceful shutdown handling
 const gracefulShutdown = async (signal: string) => {
@@ -83,17 +86,8 @@ const gracefulShutdown = async (signal: string) => {
     server.close(async () => {
       logger.info('HTTP server closed', 'server', 'shutdown');
       
-      // Close queue system (commented out for now)
-      /*
-      try {
-        await eventEmitter.shutdown();
-        logger.info('Queue system shutdown', 'queue', 'shutdown');
-      } catch (error) {
-        logger.error('Error shutting down queue system', 'queue', 'shutdown', undefined, {
-          error: error instanceof Error ? error.message : 'Unknown error',
-        });
-      }
-      */
+    // Close queue system (queue modules removed)
+    // Queue system was not initialized, no shutdown needed
       
       // Close database connections
       try {
@@ -128,7 +122,7 @@ const startApplication = async (): Promise<any> => {
     // Initialize database first
     await initializeDatabase();
     
-    // Initialize queue system (commented out for now)
+    // Initialize queue system (queue modules removed)
     // await initializeQueueSystem();
     
     // Start HTTP server

@@ -10,6 +10,17 @@ import {
   PaymentErrorCodes,
 } from '../types/payment.types';
 import { AppError } from '../middleware/errorHandler';
+import { customerRepository } from '../repositories/customerRepository';
+import { orderRepository } from '../repositories/orderRepository';
+import { transactionRepository } from '../repositories/transactionRepository';
+import {
+  CreateCustomerDto,
+  CreateOrderDto,
+  CreateTransactionDto,
+  TransactionType,
+  TransactionStatus,
+  PaymentMethodData,
+} from '../types/database.types';
 
 export class MockPaymentService {
   // Store mock transactions in memory (in real app, use database)
@@ -18,8 +29,72 @@ export class MockPaymentService {
   constructor() {
     logger.info('MockPaymentService initialized', 'payment', 'initialization', undefined, {
       environment: 'mock',
-      transactionStorage: 'in-memory',
+      transactionStorage: 'database-enabled',
     });
+  }
+
+  /**
+   * Find existing customer by email or create a new one
+   */
+  private async findOrCreateCustomer(customerInfo: any, req?: Request): Promise<string> {
+    try {
+      // Try to find customer by email
+      const existingCustomers = await customerRepository.list(
+        { email: customerInfo.email },
+        { page: 1, limit: 1 },
+        req
+      );
+
+      if (existingCustomers.data.length > 0) {
+        logger.info('Found existing customer', 'payment', 'findOrCreateCustomer', req, {
+          customerId: existingCustomers.data[0].id,
+          email: customerInfo.email,
+        });
+        return existingCustomers.data[0].id;
+      }
+
+      // Create new customer
+      const customerData: CreateCustomerDto = {
+        firstName: customerInfo.firstName || 'Unknown',
+        lastName: customerInfo.lastName || 'Customer',
+        email: customerInfo.email || `customer-${Date.now()}@example.com`,
+        phone: customerInfo.phone,
+        address: customerInfo.address,
+        metadata: { source: 'payment_processing' },
+      };
+
+      const newCustomer = await customerRepository.create(customerData, req);
+      logger.info('Created new customer', 'payment', 'findOrCreateCustomer', req, {
+        customerId: newCustomer.id,
+        email: newCustomer.email,
+      });
+
+      return newCustomer.id;
+    } catch (error) {
+      logger.error('Failed to find or create customer', 'payment', 'findOrCreateCustomer', req, {
+        error: error instanceof Error ? error.message : 'Unknown error',
+        customerEmail: customerInfo?.email,
+      });
+      throw error;
+    }
+  }
+
+  /**
+   * Get card brand from card number
+   */
+  private getBrandFromCardNumber(cardNumber?: string): string | undefined {
+    if (!cardNumber) return undefined;
+    
+    const firstDigit = cardNumber.charAt(0);
+    const firstTwo = cardNumber.substring(0, 2);
+    const firstFour = cardNumber.substring(0, 4);
+
+    if (firstDigit === '4') return 'Visa';
+    if (['51', '52', '53', '54', '55'].includes(firstTwo)) return 'Mastercard';
+    if (['34', '37'].includes(firstTwo)) return 'American Express';
+    if (firstFour === '6011') return 'Discover';
+    
+    return 'Unknown';
   }
 
   async processPayment(paymentData: PaymentRequest, req?: Request): Promise<PaymentResponse> {
@@ -65,22 +140,116 @@ export class MockPaymentService {
       const transactionId = this.generateTransactionId();
       const authCode = this.generateAuthCode();
 
-      // Store transaction for future operations
-      this.transactions.set(transactionId, {
-        type: 'purchase',
-        amount: paymentData.amount,
-        status: 'completed',
-        customerInfo: paymentData.customerInfo,
-        paymentMethod: {
+      // 🔥 NEW: Save to database
+      try {
+        // 1. Find or create customer
+        const customerId = await this.findOrCreateCustomer(paymentData.customerInfo, req);
+
+        // 2. Create order
+        const orderData: CreateOrderDto = {
+          customerId,
+          amount: paymentData.amount,
+          currency: paymentData.currency || 'USD',
+          description: paymentData.description || 'Payment processing',
+          metadata: paymentData.metadata || {},
+          correlationId: req?.tracing?.correlationId,
+        };
+
+        const order = await orderRepository.create(orderData, req);
+        logger.info('Order created for payment', 'payment', 'processPayment', req, {
+          orderId: order.id,
+          customerId,
+          amount: paymentData.amount,
+        });
+
+        // 3. Create payment method data
+        const paymentMethodData: PaymentMethodData = {
           type: paymentData.paymentMethod.type,
-          lastFour: paymentData.paymentMethod.cardNumber?.slice(-4) || 'XXXX'
-        },
-        createdAt: new Date(),
-        description: paymentData.description,
-        orderId: paymentData.orderId,
-        authCode,
-        correlationId: req?.tracing?.correlationId,
-      });
+          last4: paymentData.paymentMethod.cardNumber?.slice(-4) || undefined,
+          brand: this.getBrandFromCardNumber(paymentData.paymentMethod.cardNumber),
+          expirationMonth: paymentData.paymentMethod.expirationDate ? 
+            parseInt(paymentData.paymentMethod.expirationDate.substring(0, 2)) : undefined,
+          expirationYear: paymentData.paymentMethod.expirationDate ? 
+            parseInt('20' + paymentData.paymentMethod.expirationDate.substring(2, 4)) : undefined,
+          bankName: paymentData.paymentMethod.bankName,
+          accountType: paymentData.paymentMethod.accountType,
+        };
+
+        // 4. Create transaction
+        const transactionData: CreateTransactionDto = {
+          orderId: order.id,
+          transactionId,
+          type: TransactionType.PURCHASE,
+          amount: paymentData.amount,
+          currency: paymentData.currency || 'USD',
+          status: TransactionStatus.SUCCEEDED,
+          authCode,
+          responseCode: '1',
+          responseMessage: 'This transaction has been approved.',
+          gatewayResponse: { 
+            mockService: true,
+            timestamp: new Date().toISOString(),
+          },
+          paymentMethod: paymentMethodData,
+          processorResponse: {
+            service: 'mock',
+            approved: true,
+            responseTime: '0.1s',
+          },
+          correlationId: req?.tracing?.correlationId,
+          requestId: req?.tracing?.requestId,
+        };
+
+        const transaction = await transactionRepository.create(transactionData, req);
+        logger.info('Transaction saved to database', 'payment', 'processPayment', req, {
+          transactionId: transaction.id,
+          orderId: order.id,
+          amount: paymentData.amount,
+          status: 'succeeded',
+        });
+
+        // Keep in-memory storage for backward compatibility
+        this.transactions.set(transactionId, {
+          type: 'purchase',
+          amount: paymentData.amount,
+          status: 'completed',
+          customerInfo: paymentData.customerInfo,
+          paymentMethod: {
+            type: paymentData.paymentMethod.type,
+            lastFour: paymentData.paymentMethod.cardNumber?.slice(-4) || 'XXXX'
+          },
+          createdAt: new Date(),
+          description: paymentData.description,
+          orderId: paymentData.orderId,
+          authCode,
+          correlationId: req?.tracing?.correlationId,
+          databaseTransactionId: transaction.id, // Link to database record
+        });
+
+      } catch (dbError) {
+        logger.error('Failed to save transaction to database', 'payment', 'processPayment', req, {
+          error: dbError instanceof Error ? dbError.message : 'Unknown database error',
+          transactionId,
+          amount: paymentData.amount,
+        });
+        // Continue with in-memory storage as fallback
+        this.transactions.set(transactionId, {
+          type: 'purchase',
+          amount: paymentData.amount,
+          status: 'completed',
+          customerInfo: paymentData.customerInfo,
+          paymentMethod: {
+            type: paymentData.paymentMethod.type,
+            lastFour: paymentData.paymentMethod.cardNumber?.slice(-4) || 'XXXX'
+          },
+          createdAt: new Date(),
+          description: paymentData.description,
+          orderId: paymentData.orderId,
+          authCode,
+          correlationId: req?.tracing?.correlationId,
+          databaseError: true,
+        });
+      }
 
       const response: PaymentResponse = {
         success: true,
@@ -146,7 +315,78 @@ export class MockPaymentService {
       const transactionId = this.generateTransactionId();
       const authCode = this.generateAuthCode();
 
-      // Store authorization for future capture
+      // 🔥 NEW: Save to database
+      try {
+        // 1. Find or create customer
+        const customerId = await this.findOrCreateCustomer(authData.customerInfo, req);
+
+        // 2. Create order
+        const orderData: CreateOrderDto = {
+          customerId,
+          amount: authData.amount,
+          currency: authData.currency || 'USD',
+          description: authData.description || 'Payment authorization',
+          metadata: authData.metadata || {},
+          correlationId: req?.tracing?.correlationId,
+        };
+
+        const order = await orderRepository.create(orderData, req);
+
+        // 3. Create payment method data
+        const paymentMethodData: PaymentMethodData = {
+          type: authData.paymentMethod.type,
+          last4: authData.paymentMethod.cardNumber?.slice(-4) || undefined,
+          brand: this.getBrandFromCardNumber(authData.paymentMethod.cardNumber),
+          expirationMonth: authData.paymentMethod.expirationDate ? 
+            parseInt(authData.paymentMethod.expirationDate.substring(0, 2)) : undefined,
+          expirationYear: authData.paymentMethod.expirationDate ? 
+            parseInt('20' + authData.paymentMethod.expirationDate.substring(2, 4)) : undefined,
+          bankName: authData.paymentMethod.bankName,
+          accountType: authData.paymentMethod.accountType,
+        };
+
+        // 4. Create transaction
+        const transactionData: CreateTransactionDto = {
+          orderId: order.id,
+          transactionId,
+          type: TransactionType.AUTHORIZATION,
+          amount: authData.amount,
+          currency: authData.currency || 'USD',
+          status: TransactionStatus.AUTHORIZED,
+          authCode,
+          responseCode: '1',
+          responseMessage: 'This transaction has been authorized.',
+          gatewayResponse: { 
+            mockService: true,
+            timestamp: new Date().toISOString(),
+          },
+          paymentMethod: paymentMethodData,
+          processorResponse: {
+            service: 'mock',
+            approved: true,
+            responseTime: '0.1s',
+          },
+          correlationId: req?.tracing?.correlationId,
+          requestId: req?.tracing?.requestId,
+        };
+
+        const transaction = await transactionRepository.create(transactionData, req);
+        logger.info('Authorization transaction saved to database', 'payment', 'authorizePayment', req, {
+          transactionId: transaction.id,
+          orderId: order.id,
+          amount: authData.amount,
+          status: 'authorized',
+        });
+
+      } catch (dbError) {
+        logger.error('Failed to save authorization to database', 'payment', 'authorizePayment', req, {
+          error: dbError instanceof Error ? dbError.message : 'Unknown database error',
+          transactionId,
+          amount: authData.amount,
+        });
+      }
+
+      // Store authorization for future capture (backward compatibility)
       this.transactions.set(transactionId, {
         type: 'authorization',
         amount: authData.amount,
@@ -220,53 +460,105 @@ export class MockPaymentService {
 
       await this.simulateDelay();
 
+      // 🔥 NEW: Look up transaction in database first
+      let dbTransaction;
+      try {
+        const dbTransactions = await transactionRepository.list(
+          { transactionId: captureData.transactionId },
+          { page: 1, limit: 1 },
+          req
+        );
+        
+        if (dbTransactions.data.length === 0) {
+          logger.endServiceCall(callId, false, req, 'Transaction not found in database');
+          logger.logPayment('capture', captureData.amount || 0, 'USD', false, req, {
+            error: 'Transaction not found in database',
+            originalTransactionId: captureData.transactionId,
+            service: 'mock',
+          });
+          throw new AppError('Transaction not found', 404, PaymentErrorCodes.TRANSACTION_NOT_FOUND);
+        }
+
+        dbTransaction = dbTransactions.data[0];
+        
+        if (dbTransaction.status !== TransactionStatus.AUTHORIZED) {
+          logger.endServiceCall(callId, false, req, 'Transaction cannot be captured');
+          logger.logPayment('capture', captureData.amount || 0, 'USD', false, req, {
+            error: 'Transaction cannot be captured',
+            originalTransactionId: captureData.transactionId,
+            currentStatus: dbTransaction.status,
+            service: 'mock',
+          });
+          throw new AppError('Transaction cannot be captured', 400, PaymentErrorCodes.CAPTURE_FAILED);
+        }
+
+        // Update transaction status in database
+        const updatedTransaction = await transactionRepository.update(dbTransaction.id, {
+          status: TransactionStatus.CAPTURED,
+          responseMessage: 'This transaction has been captured.',
+          processorResponse: {
+            ...dbTransaction.processorResponse,
+            capturedAt: new Date().toISOString(),
+            capturedAmount: captureData.amount || dbTransaction.amount,
+          },
+        }, req);
+
+        logger.info('Transaction captured in database', 'payment', 'capturePayment', req, {
+          transactionId: dbTransaction.id,
+          originalTransactionId: captureData.transactionId,
+          capturedAmount: captureData.amount || dbTransaction.amount,
+        });
+
+      } catch (dbError) {
+        logger.error('Database error during capture', 'payment', 'capturePayment', req, {
+          error: dbError instanceof Error ? dbError.message : 'Unknown database error',
+          originalTransactionId: captureData.transactionId,
+        });
+        
+        // Fall back to in-memory lookup as backup
+        const originalTransaction = this.transactions.get(captureData.transactionId);
+        if (!originalTransaction) {
+          throw new AppError('Transaction not found', 404, PaymentErrorCodes.TRANSACTION_NOT_FOUND);
+        }
+
+        if (originalTransaction.status !== 'authorized') {
+          throw new AppError('Transaction cannot be captured', 400, PaymentErrorCodes.CAPTURE_FAILED);
+        }
+
+        dbTransaction = { 
+          authCode: originalTransaction.authCode,
+          amount: originalTransaction.amount,
+        };
+      }
+
+      // Update in-memory storage for backward compatibility
       const originalTransaction = this.transactions.get(captureData.transactionId);
-      if (!originalTransaction) {
-        logger.endServiceCall(callId, false, req, 'Transaction not found');
-        logger.logPayment('capture', captureData.amount || 0, 'USD', false, req, {
-          error: 'Transaction not found',
-          originalTransactionId: captureData.transactionId,
-          service: 'mock',
-        });
-        throw new AppError('Transaction not found', 404, PaymentErrorCodes.TRANSACTION_NOT_FOUND);
+      if (originalTransaction) {
+        originalTransaction.status = 'captured';
+        originalTransaction.capturedAt = new Date();
+        originalTransaction.capturedAmount = captureData.amount || originalTransaction.amount;
       }
-
-      if (originalTransaction.status !== 'authorized') {
-        logger.endServiceCall(callId, false, req, 'Transaction cannot be captured');
-        logger.logPayment('capture', captureData.amount || 0, 'USD', false, req, {
-          error: 'Transaction cannot be captured',
-          originalTransactionId: captureData.transactionId,
-          currentStatus: originalTransaction.status,
-          service: 'mock',
-        });
-        throw new AppError('Transaction cannot be captured', 400, PaymentErrorCodes.CAPTURE_FAILED);
-      }
-
-      // Update transaction status
-      originalTransaction.status = 'captured';
-      originalTransaction.capturedAt = new Date();
-      originalTransaction.capturedAmount = captureData.amount || originalTransaction.amount;
 
       const response: PaymentResponse = {
         success: true,
         transactionId: captureData.transactionId,
-        authCode: originalTransaction.authCode,
-        amount: captureData.amount || originalTransaction.amount,
-        message: 'This transaction has been approved.',
+        authCode: dbTransaction.authCode,
+        amount: captureData.amount || dbTransaction.amount,
+        message: 'This transaction has been captured.',
         responseCode: '1',
         timestamp: new Date(),
       };
 
       logger.endServiceCall(callId, true, req, undefined, {
         transactionId: captureData.transactionId,
-        authCode: originalTransaction.authCode,
+        authCode: dbTransaction.authCode,
         responseCode: '1',
       });
 
       logger.logPayment('capture', response.amount, 'USD', true, req, {
         transactionId: captureData.transactionId,
         originalTransactionId: captureData.transactionId,
-        authCode: originalTransaction.authCode,
+        authCode: dbTransaction.authCode,
         service: 'mock',
       });
 
