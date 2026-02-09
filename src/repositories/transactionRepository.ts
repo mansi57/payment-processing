@@ -347,6 +347,11 @@ export class TransactionRepository {
         params.push(filters.orderId);
       }
 
+      if (filters.transactionId) {
+        whereParts.push(`t.transaction_id = $${paramIndex++}`);
+        params.push(filters.transactionId);
+      }
+
       if (filters.type) {
         whereParts.push(`t.type = $${paramIndex++}`);
         params.push(filters.type);

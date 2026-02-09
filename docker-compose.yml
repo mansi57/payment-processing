@@ -90,9 +90,9 @@ services:
       REDIS_PASSWORD: ${REDIS_PASSWORD:-redis_secure_2024}
       
       # Payment Gateway Configuration (Sandbox)
-      AUTHORIZE_NET_API_LOGIN_ID: ${AUTHORIZE_NET_API_LOGIN_ID:-sandbox_login}
-      AUTHORIZE_NET_TRANSACTION_KEY: ${AUTHORIZE_NET_TRANSACTION_KEY:-sandbox_key}
-      AUTHORIZE_NET_ENVIRONMENT: sandbox
+      AUTHNET_API_LOGIN_ID: ${AUTHNET_API_LOGIN_ID:-sandbox_login}
+      AUTHNET_TRANSACTION_KEY: ${AUTHNET_TRANSACTION_KEY:-sandbox_key}
+      AUTHNET_ENVIRONMENT: sandbox
       
       # Security Configuration
       API_KEY: ${API_KEY:-dev_api_key_12345}

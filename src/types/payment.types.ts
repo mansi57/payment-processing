@@ -32,6 +32,7 @@ export interface PaymentMethod {
   accountNumber?: string;
   routingNumber?: string;
   accountType?: 'checking' | 'savings';
+  bankName?: string;
 }
 
 export interface PaymentResponse {
@@ -53,10 +54,12 @@ export interface RefundRequest {
 
 export interface AuthorizeRequest {
   amount: number;
+  currency?: string;
   customerInfo: CustomerInfo;
   paymentMethod: PaymentMethod;
   description?: string;
   orderId?: string;
+  metadata?: Record<string, any>;
 }
 
 export interface CaptureRequest {

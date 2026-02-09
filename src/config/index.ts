@@ -21,6 +21,12 @@ export interface Config {
   security: {
     apiSecret: string;
   };
+  jwt: {
+    secret: string;
+    expiresIn: string;
+    refreshExpiresIn: string;
+    issuer: string;
+  };
   database: {
     host: string;
     port: number;
@@ -38,7 +44,7 @@ const config: Config = {
   port: parseInt(process.env.PORT || '3000', 10),
   nodeEnv: process.env.NODE_ENV || 'development',
   payment: {
-    useMockService: process.env.USE_MOCK_PAYMENT_SERVICE === 'true' || true, // Default to mock for testing
+    useMockService: process.env.USE_MOCK_PAYMENT_SERVICE !== 'false', // Default to mock unless explicitly set to 'false'
   },
   authNet: {
     apiLoginId: process.env.AUTHNET_API_LOGIN_ID || 'test_api_login_id',
@@ -52,6 +58,12 @@ const config: Config = {
   },
   security: {
     apiSecret: process.env.API_SECRET || 'default-secret-change-in-production',
+  },
+  jwt: {
+    secret: process.env.JWT_SECRET || 'jwt-secret-change-in-production-' + Math.random().toString(36),
+    expiresIn: process.env.JWT_EXPIRES_IN || '1h',
+    refreshExpiresIn: process.env.JWT_REFRESH_EXPIRES_IN || '7d',
+    issuer: process.env.JWT_ISSUER || 'payment-processing-api',
   },
   database: {
     host: process.env.DB_HOST || 'localhost',

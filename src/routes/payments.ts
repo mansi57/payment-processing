@@ -11,9 +11,13 @@ import {
   captureRequestSchema,
   voidRequestSchema,
 } from '../utils/validation';
+import idempotencyMiddleware from '../middleware/idempotency';
 import { logger } from '../utils/tracingLogger';
 
 const router = Router();
+
+// Apply idempotency middleware to all state-changing payment operations
+router.use(idempotencyMiddleware);
 
 // Use mock service or real service based on configuration
 const paymentService = config.payment.useMockService 
@@ -28,7 +32,7 @@ logger.info('Payment service initialized', 'payment', 'initialization', undefine
 /**
  * @route POST /api/payments/purchase
  * @desc Process a payment (authorize and capture in one step)
- * @access Public
+ * @access Protected (JWT required)
  */
 router.post(
   '/purchase',
@@ -47,7 +51,7 @@ router.post(
 /**
  * @route POST /api/payments/authorize
  * @desc Authorize a payment (hold funds without capturing)
- * @access Public
+ * @access Protected (JWT required)
  */
 router.post(
   '/authorize',
@@ -66,7 +70,7 @@ router.post(
 /**
  * @route POST /api/payments/capture/:transactionId
  * @desc Capture a previously authorized payment
- * @access Public
+ * @access Protected (JWT required)
  */
 router.post(
   '/capture/:transactionId',
@@ -92,7 +96,7 @@ router.post(
 /**
  * @route POST /api/payments/refund/:transactionId
  * @desc Refund a payment (full or partial)
- * @access Public
+ * @access Protected (JWT required)
  */
 router.post(
   '/refund/:transactionId',
@@ -118,7 +122,7 @@ router.post(
 /**
  * @route POST /api/payments/void/:transactionId
  * @desc Void a payment (cancel before settlement)
- * @access Public
+ * @access Protected (JWT required)
  */
 router.post(
   '/void/:transactionId',
@@ -144,7 +148,7 @@ router.post(
 /**
  * @route GET /api/payments/health
  * @desc Health check endpoint
- * @access Public
+ * @access Protected (JWT required)
  */
 router.get('/health', (req: Request, res: Response) => {
   logger.info('Payment service health check', 'payment', 'health', req);
