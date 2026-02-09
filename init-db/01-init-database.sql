@@ -60,3 +60,4 @@ GRANT ALL PRIVILEGES ON ALL SEQUENCES IN SCHEMA public TO postgres;
 
 -- Log initialization completion
 \echo 'Docker PostgreSQL initialization completed successfully!';
+

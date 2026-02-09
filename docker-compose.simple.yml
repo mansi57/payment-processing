@@ -177,3 +177,4 @@ volumes:
   app_logs:
     driver: local
     name: payment_processing_logs
+

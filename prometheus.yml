@@ -49,3 +49,4 @@ scrape_configs:
       - targets: ['admin-dashboard:80']
     metrics_path: '/nginx_status'
     scrape_interval: 30s
+
