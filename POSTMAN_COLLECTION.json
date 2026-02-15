@@ -1,0 +1,1277 @@
+{
+	"info": {
+		"_postman_id": "a1b2c3d4-e5f6-7890-abcd-ef1234567890",
+		"name": "Payment Processing API",
+		"description": "Comprehensive Postman collection for the Payment Processing API.\n\nFeatures tested:\n- JWT Authentication (register, login, refresh, logout)\n- Payment Flows (purchase, authorize, capture, refund, void)\n- Subscription / Recurring Billing\n- Webhook Management\n- Database CRUD Operations\n- Distributed Tracing & Observability\n- Queue Monitoring\n- Idempotency\n\n**Setup:** Run '1. Register User' or '2. Login' first — the access token is auto-saved to the collection variable `accessToken`.",
+		"schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+	},
+	"variable": [
+		{ "key": "baseUrl", "value": "http://localhost:3000", "type": "string" },
+		{ "key": "accessToken", "value": "", "type": "string" },
+		{ "key": "refreshToken", "value": "", "type": "string" },
+		{ "key": "userId", "value": "", "type": "string" },
+		{ "key": "purchaseTxId", "value": "", "type": "string" },
+		{ "key": "authorizeTxId", "value": "", "type": "string" },
+		{ "key": "refundTxId", "value": "", "type": "string" },
+		{ "key": "planId", "value": "", "type": "string" },
+		{ "key": "subscriptionId", "value": "", "type": "string" },
+		{ "key": "webhookEndpointId", "value": "", "type": "string" },
+		{ "key": "webhookEventId", "value": "", "type": "string" },
+		{ "key": "customerId", "value": "", "type": "string" },
+		{ "key": "orderId", "value": "", "type": "string" },
+		{ "key": "transactionDbId", "value": "", "type": "string" },
+		{ "key": "correlationId", "value": "", "type": "string" }
+	],
+	"auth": {
+		"type": "bearer",
+		"bearer": [
+			{ "key": "token", "value": "{{accessToken}}", "type": "string" }
+		]
+	},
+	"event": [
+		{
+			"listen": "prerequest",
+			"script": {
+				"type": "text/javascript",
+				"exec": [
+					"// Auto-generate Idempotency-Key for POST/PUT/PATCH/DELETE requests",
+					"if (['POST','PUT','PATCH','DELETE'].includes(pm.request.method)) {",
+					"    if (!pm.request.headers.get('Idempotency-Key')) {",
+					"        pm.request.headers.add({",
+					"            key: 'Idempotency-Key',",
+					"            value: pm.variables.replaceIn('{{$guid}}')",
+					"        });",
+					"    }",
+					"}"
+				]
+			}
+		},
+		{
+			"listen": "test",
+			"script": {
+				"type": "text/javascript",
+				"exec": [
+					"// Auto-capture correlation ID from every response",
+					"try {",
+					"    var jsonData = pm.response.json();",
+					"    if (jsonData.tracing && jsonData.tracing.correlationId) {",
+					"        pm.collectionVariables.set('correlationId', jsonData.tracing.correlationId);",
+					"    }",
+					"    if (jsonData.correlationId) {",
+					"        pm.collectionVariables.set('correlationId', jsonData.correlationId);",
+					"    }",
+					"} catch(e) {}"
+				]
+			}
+		}
+	],
+	"item": [
+		{
+			"name": "🏥 Health Checks",
+			"description": "Health check endpoints — no authentication required.",
+			"item": [
+				{
+					"name": "App Health Check",
+					"request": {
+						"auth": { "type": "noauth" },
+						"method": "GET",
+						"header": [],
+						"url": { "raw": "{{baseUrl}}/health", "host": ["{{baseUrl}}"], "path": ["health"] }
+					},
+					"response": [],
+					"event": [
+						{
+							"listen": "test",
+							"script": {
+								"type": "text/javascript",
+								"exec": [
+									"pm.test('Health check returns 200', function () {",
+									"    pm.response.to.have.status(200);",
+									"});",
+									"pm.test('All services operational', function () {",
+									"    var json = pm.response.json();",
+									"    pm.expect(json.success).to.be.true;",
+									"    pm.expect(json.services.database).to.eql('operational');",
+									"    pm.expect(json.services.payments).to.eql('operational');",
+									"});"
+								]
+							}
+						}
+					]
+				},
+				{
+					"name": "Auth Service Health",
+					"request": {
+						"auth": { "type": "noauth" },
+						"method": "GET",
+						"header": [],
+						"url": { "raw": "{{baseUrl}}/api/auth/health", "host": ["{{baseUrl}}"], "path": ["api","auth","health"] }
+					},
+					"response": []
+				}
+			]
+		},
+		{
+			"name": "🔐 Authentication",
+			"description": "JWT authentication flow. Run Register → Login first. Tokens are auto-saved.",
+			"item": [
+				{
+					"name": "1. Register User",
+					"request": {
+						"auth": { "type": "noauth" },
+						"method": "POST",
+						"header": [
+							{ "key": "Content-Type", "value": "application/json" }
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n    \"email\": \"testuser@example.com\",\n    \"password\": \"SecureP@ss123\",\n    \"firstName\": \"Test\",\n    \"lastName\": \"User\",\n    \"role\": \"admin\"\n}"
+						},
+						"url": { "raw": "{{baseUrl}}/api/auth/register", "host": ["{{baseUrl}}"], "path": ["api","auth","register"] }
+					},
+					"response": [],
+					"event": [
+						{
+							"listen": "test",
+							"script": {
+								"type": "text/javascript",
+								"exec": [
+									"pm.test('Registration successful', function () {",
+									"    pm.response.to.have.status(201);",
+									"    var json = pm.response.json();",
+									"    pm.expect(json.success).to.be.true;",
+									"    pm.expect(json.data.accessToken).to.be.a('string');",
+									"    // Auto-save tokens and user ID",
+									"    pm.collectionVariables.set('accessToken', json.data.accessToken);",
+									"    pm.collectionVariables.set('refreshToken', json.data.refreshToken);",
+									"    pm.collectionVariables.set('userId', json.data.user.id);",
+									"    console.log('✅ Tokens saved. userId:', json.data.user.id);",
+									"});"
+								]
+							}
+						}
+					]
+				},
+				{
+					"name": "2. Login",
+					"request": {
+						"auth": { "type": "noauth" },
+						"method": "POST",
+						"header": [
+							{ "key": "Content-Type", "value": "application/json" }
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n    \"email\": \"testuser@example.com\",\n    \"password\": \"SecureP@ss123\"\n}"
+						},
+						"url": { "raw": "{{baseUrl}}/api/auth/login", "host": ["{{baseUrl}}"], "path": ["api","auth","login"] }
+					},
+					"response": [],
+					"event": [
+						{
+							"listen": "test",
+							"script": {
+								"type": "text/javascript",
+								"exec": [
+									"pm.test('Login successful', function () {",
+									"    pm.response.to.have.status(200);",
+									"    var json = pm.response.json();",
+									"    pm.expect(json.success).to.be.true;",
+									"    pm.collectionVariables.set('accessToken', json.data.accessToken);",
+									"    pm.collectionVariables.set('refreshToken', json.data.refreshToken);",
+									"    pm.collectionVariables.set('userId', json.data.user.id);",
+									"    console.log('✅ Tokens refreshed via login');",
+									"});"
+								]
+							}
+						}
+					]
+				},
+				{
+					"name": "3. Refresh Token",
+					"request": {
+						"auth": { "type": "noauth" },
+						"method": "POST",
+						"header": [
+							{ "key": "Content-Type", "value": "application/json" }
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n    \"refreshToken\": \"{{refreshToken}}\"\n}"
+						},
+						"url": { "raw": "{{baseUrl}}/api/auth/refresh", "host": ["{{baseUrl}}"], "path": ["api","auth","refresh"] }
+					},
+					"response": [],
+					"event": [
+						{
+							"listen": "test",
+							"script": {
+								"type": "text/javascript",
+								"exec": [
+									"pm.test('Token refresh successful', function () {",
+									"    pm.response.to.have.status(200);",
+									"    var json = pm.response.json();",
+									"    pm.expect(json.success).to.be.true;",
+									"    pm.collectionVariables.set('accessToken', json.data.accessToken);",
+									"    pm.collectionVariables.set('refreshToken', json.data.refreshToken);",
+									"    console.log('✅ Access token refreshed');",
+									"});"
+								]
+							}
+						}
+					]
+				},
+				{
+					"name": "4. Get Profile",
+					"request": {
+						"method": "GET",
+						"header": [],
+						"url": { "raw": "{{baseUrl}}/api/auth/profile", "host": ["{{baseUrl}}"], "path": ["api","auth","profile"] }
+					},
+					"response": [],
+					"event": [
+						{
+							"listen": "test",
+							"script": {
+								"type": "text/javascript",
+								"exec": [
+									"pm.test('Profile retrieved', function () {",
+									"    pm.response.to.have.status(200);",
+									"    var json = pm.response.json();",
+									"    pm.expect(json.success).to.be.true;",
+									"    pm.expect(json.data.email).to.be.a('string');",
+									"});"
+								]
+							}
+						}
+					]
+				},
+				{
+					"name": "5. Logout",
+					"request": {
+						"method": "POST",
+						"header": [],
+						"url": { "raw": "{{baseUrl}}/api/auth/logout", "host": ["{{baseUrl}}"], "path": ["api","auth","logout"] }
+					},
+					"response": [],
+					"event": [
+						{
+							"listen": "test",
+							"script": {
+								"type": "text/javascript",
+								"exec": [
+									"pm.test('Logout successful', function () {",
+									"    pm.response.to.have.status(200);",
+									"    var json = pm.response.json();",
+									"    pm.expect(json.success).to.be.true;",
+									"});"
+								]
+							}
+						}
+					]
+				},
+				{
+					"name": "❌ Test - Unauthenticated Access",
+					"request": {
+						"auth": { "type": "noauth" },
+						"method": "GET",
+						"header": [],
+						"url": { "raw": "{{baseUrl}}/api/payments/health", "host": ["{{baseUrl}}"], "path": ["api","payments","health"] }
+					},
+					"response": [],
+					"event": [
+						{
+							"listen": "test",
+							"script": {
+								"type": "text/javascript",
+								"exec": [
+									"pm.test('Unauthenticated access rejected with 401', function () {",
+									"    pm.response.to.have.status(401);",
+									"    var json = pm.response.json();",
+									"    pm.expect(json.success).to.be.false;",
+									"    pm.expect(json.error.code).to.eql('NO_AUTH_HEADER');",
+									"});"
+								]
+							}
+						}
+					]
+				}
+			]
+		},
+		{
+			"name": "💳 Payments — Purchase Flow",
+			"description": "Single-step payment: authorize + capture in one request.",
+			"item": [
+				{
+					"name": "Purchase (Credit Card)",
+					"request": {
+						"method": "POST",
+						"header": [
+							{ "key": "Content-Type", "value": "application/json" }
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n    \"amount\": 49.99,\n    \"currency\": \"USD\",\n    \"customerInfo\": {\n        \"firstName\": \"John\",\n        \"lastName\": \"Doe\",\n        \"email\": \"john.doe@example.com\",\n        \"phone\": \"+1-555-123-4567\",\n        \"address\": {\n            \"street\": \"123 Main St\",\n            \"city\": \"New York\",\n            \"state\": \"NY\",\n            \"zipCode\": \"10001\",\n            \"country\": \"US\"\n        }\n    },\n    \"paymentMethod\": {\n        \"type\": \"credit_card\",\n        \"cardNumber\": \"4111111111111111\",\n        \"expirationDate\": \"1228\",\n        \"cvv\": \"123\"\n    },\n    \"description\": \"Test purchase — credit card\"\n}"
+						},
+						"url": { "raw": "{{baseUrl}}/api/payments/purchase", "host": ["{{baseUrl}}"], "path": ["api","payments","purchase"] }
+					},
+					"response": [],
+					"event": [
+						{
+							"listen": "test",
+							"script": {
+								"type": "text/javascript",
+								"exec": [
+									"pm.test('Purchase successful', function () {",
+									"    pm.response.to.have.status(200);",
+									"    var json = pm.response.json();",
+									"    pm.expect(json.success).to.be.true;",
+									"    pm.expect(json.data.transactionId).to.be.a('string');",
+									"    pm.collectionVariables.set('purchaseTxId', json.data.transactionId);",
+									"    console.log('✅ purchaseTxId:', json.data.transactionId);",
+									"});"
+								]
+							}
+						}
+					]
+				},
+				{
+					"name": "Refund Purchase (Partial)",
+					"request": {
+						"method": "POST",
+						"header": [
+							{ "key": "Content-Type", "value": "application/json" }
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n    \"amount\": 15.00,\n    \"reason\": \"Partial refund — customer request\"\n}"
+						},
+						"url": { "raw": "{{baseUrl}}/api/payments/refund/{{purchaseTxId}}", "host": ["{{baseUrl}}"], "path": ["api","payments","refund","{{purchaseTxId}}"] }
+					},
+					"response": [],
+					"event": [
+						{
+							"listen": "test",
+							"script": {
+								"type": "text/javascript",
+								"exec": [
+									"pm.test('Partial refund successful', function () {",
+									"    pm.response.to.have.status(200);",
+									"    var json = pm.response.json();",
+									"    pm.expect(json.success).to.be.true;",
+									"    pm.expect(json.data.amount).to.eql(15);",
+									"    pm.collectionVariables.set('refundTxId', json.data.transactionId);",
+									"    console.log('✅ refundTxId:', json.data.transactionId);",
+									"});"
+								]
+							}
+						}
+					]
+				}
+			]
+		},
+		{
+			"name": "💳 Payments — Authorize + Capture Flow",
+			"description": "Two-step payment: authorize first, then capture later.",
+			"item": [
+				{
+					"name": "1. Authorize Payment",
+					"request": {
+						"method": "POST",
+						"header": [
+							{ "key": "Content-Type", "value": "application/json" }
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n    \"amount\": 150.00,\n    \"customerInfo\": {\n        \"firstName\": \"Jane\",\n        \"lastName\": \"Smith\",\n        \"email\": \"jane.smith@example.com\"\n    },\n    \"paymentMethod\": {\n        \"type\": \"credit_card\",\n        \"cardNumber\": \"4111111111111111\",\n        \"expirationDate\": \"1228\",\n        \"cvv\": \"456\"\n    },\n    \"description\": \"Pre-auth for hotel booking\"\n}"
+						},
+						"url": { "raw": "{{baseUrl}}/api/payments/authorize", "host": ["{{baseUrl}}"], "path": ["api","payments","authorize"] }
+					},
+					"response": [],
+					"event": [
+						{
+							"listen": "test",
+							"script": {
+								"type": "text/javascript",
+								"exec": [
+									"pm.test('Authorization successful', function () {",
+									"    pm.response.to.have.status(200);",
+									"    var json = pm.response.json();",
+									"    pm.expect(json.success).to.be.true;",
+									"    pm.expect(json.data.transactionId).to.be.a('string');",
+									"    pm.collectionVariables.set('authorizeTxId', json.data.transactionId);",
+									"    console.log('✅ authorizeTxId:', json.data.transactionId);",
+									"});"
+								]
+							}
+						}
+					]
+				},
+				{
+					"name": "2. Capture Authorized Payment",
+					"request": {
+						"method": "POST",
+						"header": [
+							{ "key": "Content-Type", "value": "application/json" }
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n    \"amount\": 150.00\n}"
+						},
+						"url": { "raw": "{{baseUrl}}/api/payments/capture/{{authorizeTxId}}", "host": ["{{baseUrl}}"], "path": ["api","payments","capture","{{authorizeTxId}}"] }
+					},
+					"response": [],
+					"event": [
+						{
+							"listen": "test",
+							"script": {
+								"type": "text/javascript",
+								"exec": [
+									"pm.test('Capture successful', function () {",
+									"    pm.response.to.have.status(200);",
+									"    var json = pm.response.json();",
+									"    pm.expect(json.success).to.be.true;",
+									"    pm.expect(json.message).to.include('captured');",
+									"});"
+								]
+							}
+						}
+					]
+				},
+				{
+					"name": "3. Full Refund Captured Payment",
+					"request": {
+						"method": "POST",
+						"header": [
+							{ "key": "Content-Type", "value": "application/json" }
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n    \"reason\": \"Full refund — order cancelled\"\n}"
+						},
+						"url": { "raw": "{{baseUrl}}/api/payments/refund/{{authorizeTxId}}", "host": ["{{baseUrl}}"], "path": ["api","payments","refund","{{authorizeTxId}}"] }
+					},
+					"response": [],
+					"event": [
+						{
+							"listen": "test",
+							"script": {
+								"type": "text/javascript",
+								"exec": [
+									"pm.test('Full refund successful', function () {",
+									"    pm.response.to.have.status(200);",
+									"    var json = pm.response.json();",
+									"    pm.expect(json.success).to.be.true;",
+									"});"
+								]
+							}
+						}
+					]
+				}
+			]
+		},
+		{
+			"name": "💳 Payments — Void (Cancel) Flow",
+			"description": "Authorize then void (cancel before settlement).",
+			"item": [
+				{
+					"name": "1. Authorize Payment (to be voided)",
+					"request": {
+						"method": "POST",
+						"header": [
+							{ "key": "Content-Type", "value": "application/json" }
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n    \"amount\": 75.00,\n    \"customerInfo\": {\n        \"firstName\": \"Bob\",\n        \"lastName\": \"Wilson\",\n        \"email\": \"bob.wilson@example.com\"\n    },\n    \"paymentMethod\": {\n        \"type\": \"credit_card\",\n        \"cardNumber\": \"4111111111111111\",\n        \"expirationDate\": \"1228\",\n        \"cvv\": \"789\"\n    },\n    \"description\": \"Authorization to be cancelled\"\n}"
+						},
+						"url": { "raw": "{{baseUrl}}/api/payments/authorize", "host": ["{{baseUrl}}"], "path": ["api","payments","authorize"] }
+					},
+					"response": [],
+					"event": [
+						{
+							"listen": "test",
+							"script": {
+								"type": "text/javascript",
+								"exec": [
+									"pm.test('Authorization for void successful', function () {",
+									"    pm.response.to.have.status(200);",
+									"    var json = pm.response.json();",
+									"    pm.collectionVariables.set('authorizeTxId', json.data.transactionId);",
+									"    console.log('✅ authorizeTxId (to void):', json.data.transactionId);",
+									"});"
+								]
+							}
+						}
+					]
+				},
+				{
+					"name": "2. Void (Cancel) Authorization",
+					"request": {
+						"method": "POST",
+						"header": [
+							{ "key": "Content-Type", "value": "application/json" }
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n    \"reason\": \"Customer changed their mind\"\n}"
+						},
+						"url": { "raw": "{{baseUrl}}/api/payments/void/{{authorizeTxId}}", "host": ["{{baseUrl}}"], "path": ["api","payments","void","{{authorizeTxId}}"] }
+					},
+					"response": [],
+					"event": [
+						{
+							"listen": "test",
+							"script": {
+								"type": "text/javascript",
+								"exec": [
+									"pm.test('Void successful', function () {",
+									"    pm.response.to.have.status(200);",
+									"    var json = pm.response.json();",
+									"    pm.expect(json.success).to.be.true;",
+									"    pm.expect(json.message).to.include('voided');",
+									"});"
+								]
+							}
+						}
+					]
+				}
+			]
+		},
+		{
+			"name": "🔁 Idempotency",
+			"description": "Verify that duplicate requests with the same Idempotency-Key return cached responses.",
+			"item": [
+				{
+					"name": "Purchase with Fixed Key (1st call)",
+					"request": {
+						"method": "POST",
+						"header": [
+							{ "key": "Content-Type", "value": "application/json" },
+							{ "key": "Idempotency-Key", "value": "aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee" }
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n    \"amount\": 29.99,\n    \"currency\": \"USD\",\n    \"customerInfo\": {\n        \"firstName\": \"Idem\",\n        \"lastName\": \"Test\",\n        \"email\": \"idem@example.com\"\n    },\n    \"paymentMethod\": {\n        \"type\": \"credit_card\",\n        \"cardNumber\": \"4111111111111111\",\n        \"expirationDate\": \"1228\",\n        \"cvv\": \"321\"\n    },\n    \"description\": \"Idempotency test\"\n}"
+						},
+						"url": { "raw": "{{baseUrl}}/api/payments/purchase", "host": ["{{baseUrl}}"], "path": ["api","payments","purchase"] }
+					},
+					"response": [],
+					"event": [
+						{
+							"listen": "test",
+							"script": {
+								"type": "text/javascript",
+								"exec": [
+									"pm.test('First call succeeds', function () {",
+									"    pm.response.to.have.status(200);",
+									"    var json = pm.response.json();",
+									"    pm.expect(json.success).to.be.true;",
+									"    pm.collectionVariables.set('idemTxId', json.data.transactionId);",
+									"});"
+								]
+							}
+						}
+					]
+				},
+				{
+					"name": "Purchase with Fixed Key (2nd call — should be cached)",
+					"request": {
+						"method": "POST",
+						"header": [
+							{ "key": "Content-Type", "value": "application/json" },
+							{ "key": "Idempotency-Key", "value": "aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee" }
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n    \"amount\": 29.99,\n    \"currency\": \"USD\",\n    \"customerInfo\": {\n        \"firstName\": \"Idem\",\n        \"lastName\": \"Test\",\n        \"email\": \"idem@example.com\"\n    },\n    \"paymentMethod\": {\n        \"type\": \"credit_card\",\n        \"cardNumber\": \"4111111111111111\",\n        \"expirationDate\": \"1228\",\n        \"cvv\": \"321\"\n    },\n    \"description\": \"Idempotency test\"\n}"
+						},
+						"url": { "raw": "{{baseUrl}}/api/payments/purchase", "host": ["{{baseUrl}}"], "path": ["api","payments","purchase"] }
+					},
+					"response": [],
+					"event": [
+						{
+							"listen": "test",
+							"script": {
+								"type": "text/javascript",
+								"exec": [
+									"pm.test('Second call returns cached response', function () {",
+									"    pm.response.to.have.status(200);",
+									"    var json = pm.response.json();",
+									"    pm.expect(json.success).to.be.true;",
+									"    // The transactionId should be identical to the first call",
+									"    console.log('Cached transactionId:', json.data.transactionId);",
+									"});"
+								]
+							}
+						}
+					]
+				}
+			]
+		},
+		{
+			"name": "📅 Subscriptions / Recurring Billing",
+			"description": "Subscription plan and recurring billing management.",
+			"item": [
+				{
+					"name": "1. Create Plan",
+					"request": {
+						"method": "POST",
+						"header": [
+							{ "key": "Content-Type", "value": "application/json" }
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n    \"name\": \"Pro Monthly Plan\",\n    \"description\": \"Professional plan with all features — billed monthly\",\n    \"amount\": 2999,\n    \"currency\": \"USD\",\n    \"interval\": \"monthly\",\n    \"intervalCount\": 1,\n    \"trialPeriodDays\": 14,\n    \"metadata\": {\n        \"tier\": \"pro\",\n        \"features\": [\"unlimited-api-calls\", \"priority-support\"]\n    }\n}"
+						},
+						"url": { "raw": "{{baseUrl}}/api/subscriptions/plans", "host": ["{{baseUrl}}"], "path": ["api","subscriptions","plans"] }
+					},
+					"response": [],
+					"event": [
+						{
+							"listen": "test",
+							"script": {
+								"type": "text/javascript",
+								"exec": [
+									"pm.test('Plan created', function () {",
+									"    pm.response.to.have.status(201);",
+									"    var json = pm.response.json();",
+									"    pm.expect(json.success).to.be.true;",
+									"    if (json.data && json.data.id) {",
+									"        pm.collectionVariables.set('planId', json.data.id);",
+									"        console.log('✅ planId:', json.data.id);",
+									"    }",
+									"});"
+								]
+							}
+						}
+					]
+				},
+				{
+					"name": "2. List Plans",
+					"request": {
+						"method": "GET",
+						"header": [],
+						"url": { "raw": "{{baseUrl}}/api/subscriptions/plans", "host": ["{{baseUrl}}"], "path": ["api","subscriptions","plans"] }
+					},
+					"response": [],
+					"event": [
+						{
+							"listen": "test",
+							"script": {
+								"type": "text/javascript",
+								"exec": [
+									"pm.test('Plans listed', function () {",
+									"    pm.response.to.have.status(200);",
+									"    var json = pm.response.json();",
+									"    pm.expect(json.success).to.be.true;",
+									"    // Auto-capture first plan ID if not already set",
+									"    if (json.data && json.data.length > 0 && !pm.collectionVariables.get('planId')) {",
+									"        pm.collectionVariables.set('planId', json.data[0].id);",
+									"    }",
+									"});"
+								]
+							}
+						}
+					]
+				},
+				{
+					"name": "3. Get Plan",
+					"request": {
+						"method": "GET",
+						"header": [],
+						"url": { "raw": "{{baseUrl}}/api/subscriptions/plans/{{planId}}", "host": ["{{baseUrl}}"], "path": ["api","subscriptions","plans","{{planId}}"] }
+					},
+					"response": []
+				},
+				{
+					"name": "4. Create Subscription",
+					"request": {
+						"method": "POST",
+						"header": [
+							{ "key": "Content-Type", "value": "application/json" }
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n    \"customerId\": \"customer-123\",\n    \"planId\": \"{{planId}}\",\n    \"quantity\": 1,\n    \"trialPeriodDays\": 7,\n    \"metadata\": {\n        \"source\": \"postman-test\"\n    }\n}"
+						},
+						"url": { "raw": "{{baseUrl}}/api/subscriptions/subscriptions", "host": ["{{baseUrl}}"], "path": ["api","subscriptions","subscriptions"] }
+					},
+					"response": [],
+					"event": [
+						{
+							"listen": "test",
+							"script": {
+								"type": "text/javascript",
+								"exec": [
+									"pm.test('Subscription created', function () {",
+									"    pm.response.to.have.status(201);",
+									"    var json = pm.response.json();",
+									"    pm.expect(json.success).to.be.true;",
+									"    if (json.data && json.data.id) {",
+									"        pm.collectionVariables.set('subscriptionId', json.data.id);",
+									"        console.log('✅ subscriptionId:', json.data.id);",
+									"    }",
+									"});"
+								]
+							}
+						}
+					]
+				},
+				{
+					"name": "5. Get Subscription",
+					"request": {
+						"method": "GET",
+						"header": [],
+						"url": { "raw": "{{baseUrl}}/api/subscriptions/subscriptions/{{subscriptionId}}", "host": ["{{baseUrl}}"], "path": ["api","subscriptions","subscriptions","{{subscriptionId}}"] }
+					},
+					"response": []
+				},
+				{
+					"name": "6. Update Subscription",
+					"request": {
+						"method": "PATCH",
+						"header": [
+							{ "key": "Content-Type", "value": "application/json" }
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n    \"quantity\": 2,\n    \"metadata\": {\n        \"upgraded\": true\n    }\n}"
+						},
+						"url": { "raw": "{{baseUrl}}/api/subscriptions/subscriptions/{{subscriptionId}}", "host": ["{{baseUrl}}"], "path": ["api","subscriptions","subscriptions","{{subscriptionId}}"] }
+					},
+					"response": []
+				},
+				{
+					"name": "7. Trigger Manual Billing",
+					"request": {
+						"method": "POST",
+						"header": [],
+						"url": { "raw": "{{baseUrl}}/api/subscriptions/subscriptions/{{subscriptionId}}/bill_now", "host": ["{{baseUrl}}"], "path": ["api","subscriptions","subscriptions","{{subscriptionId}}","bill_now"] }
+					},
+					"response": []
+				},
+				{
+					"name": "8. Cancel Subscription",
+					"request": {
+						"method": "DELETE",
+						"header": [
+							{ "key": "Content-Type", "value": "application/json" }
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n    \"cancelAtPeriodEnd\": true\n}"
+						},
+						"url": { "raw": "{{baseUrl}}/api/subscriptions/subscriptions/{{subscriptionId}}", "host": ["{{baseUrl}}"], "path": ["api","subscriptions","subscriptions","{{subscriptionId}}"] }
+					},
+					"response": []
+				},
+				{
+					"name": "9. Resume Subscription",
+					"request": {
+						"method": "POST",
+						"header": [],
+						"url": { "raw": "{{baseUrl}}/api/subscriptions/subscriptions/{{subscriptionId}}/resume", "host": ["{{baseUrl}}"], "path": ["api","subscriptions","subscriptions","{{subscriptionId}}","resume"] }
+					},
+					"response": []
+				},
+				{
+					"name": "Subscription Health",
+					"request": {
+						"method": "GET",
+						"header": [],
+						"url": { "raw": "{{baseUrl}}/api/subscriptions/health", "host": ["{{baseUrl}}"], "path": ["api","subscriptions","health"] }
+					},
+					"response": []
+				}
+			]
+		},
+		{
+			"name": "🔔 Webhooks",
+			"description": "Webhook endpoint management, event handling, and delivery monitoring.\nNote: Webhook routes are public (called by external services).",
+			"item": [
+				{
+					"name": "1. Create Webhook Endpoint",
+					"request": {
+						"auth": { "type": "noauth" },
+						"method": "POST",
+						"header": [
+							{ "key": "Content-Type", "value": "application/json" }
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n    \"url\": \"https://webhook.site/test-endpoint\",\n    \"description\": \"Test webhook receiver\",\n    \"enabledEvents\": [\n        \"payment.succeeded\",\n        \"payment.failed\",\n        \"payment.refunded\",\n        \"subscription.created\",\n        \"subscription.canceled\"\n    ],\n    \"metadata\": {\n        \"environment\": \"testing\"\n    }\n}"
+						},
+						"url": { "raw": "{{baseUrl}}/api/webhooks/endpoints", "host": ["{{baseUrl}}"], "path": ["api","webhooks","endpoints"] }
+					},
+					"response": [],
+					"event": [
+						{
+							"listen": "test",
+							"script": {
+								"type": "text/javascript",
+								"exec": [
+									"pm.test('Webhook endpoint created', function () {",
+									"    pm.response.to.have.status(201);",
+									"    var json = pm.response.json();",
+									"    pm.expect(json.success).to.be.true;",
+									"    if (json.data && json.data.id) {",
+									"        pm.collectionVariables.set('webhookEndpointId', json.data.id);",
+									"        console.log('✅ webhookEndpointId:', json.data.id);",
+									"    }",
+									"});"
+								]
+							}
+						}
+					]
+				},
+				{
+					"name": "2. List Webhook Endpoints",
+					"request": {
+						"auth": { "type": "noauth" },
+						"method": "GET",
+						"header": [],
+						"url": { "raw": "{{baseUrl}}/api/webhooks/endpoints", "host": ["{{baseUrl}}"], "path": ["api","webhooks","endpoints"] }
+					},
+					"response": []
+				},
+				{
+					"name": "3. Get Webhook Endpoint",
+					"request": {
+						"auth": { "type": "noauth" },
+						"method": "GET",
+						"header": [],
+						"url": { "raw": "{{baseUrl}}/api/webhooks/endpoints/{{webhookEndpointId}}", "host": ["{{baseUrl}}"], "path": ["api","webhooks","endpoints","{{webhookEndpointId}}"] }
+					},
+					"response": []
+				},
+				{
+					"name": "4. Update Webhook Endpoint",
+					"request": {
+						"auth": { "type": "noauth" },
+						"method": "PATCH",
+						"header": [
+							{ "key": "Content-Type", "value": "application/json" }
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n    \"description\": \"Updated test webhook\",\n    \"enabledEvents\": [\n        \"payment.succeeded\",\n        \"payment.failed\",\n        \"payment.refunded\",\n        \"payment.voided\"\n    ]\n}"
+						},
+						"url": { "raw": "{{baseUrl}}/api/webhooks/endpoints/{{webhookEndpointId}}", "host": ["{{baseUrl}}"], "path": ["api","webhooks","endpoints","{{webhookEndpointId}}"] }
+					},
+					"response": []
+				},
+				{
+					"name": "5. Test Webhook Endpoint",
+					"request": {
+						"auth": { "type": "noauth" },
+						"method": "POST",
+						"header": [],
+						"url": { "raw": "{{baseUrl}}/api/webhooks/endpoints/{{webhookEndpointId}}/test", "host": ["{{baseUrl}}"], "path": ["api","webhooks","endpoints","{{webhookEndpointId}}","test"] }
+					},
+					"response": [],
+					"event": [
+						{
+							"listen": "test",
+							"script": {
+								"type": "text/javascript",
+								"exec": [
+									"var json = pm.response.json();",
+									"if (json.eventId) {",
+									"    pm.collectionVariables.set('webhookEventId', json.eventId);",
+									"    console.log('✅ webhookEventId:', json.eventId);",
+									"}"
+								]
+							}
+						}
+					]
+				},
+				{
+					"name": "6. Endpoint Health",
+					"request": {
+						"auth": { "type": "noauth" },
+						"method": "GET",
+						"header": [],
+						"url": { "raw": "{{baseUrl}}/api/webhooks/endpoints/{{webhookEndpointId}}/health", "host": ["{{baseUrl}}"], "path": ["api","webhooks","endpoints","{{webhookEndpointId}}","health"] }
+					},
+					"response": []
+				},
+				{
+					"name": "7. Endpoint Deliveries",
+					"request": {
+						"auth": { "type": "noauth" },
+						"method": "GET",
+						"header": [],
+						"url": { "raw": "{{baseUrl}}/api/webhooks/endpoints/{{webhookEndpointId}}/deliveries", "host": ["{{baseUrl}}"], "path": ["api","webhooks","endpoints","{{webhookEndpointId}}","deliveries"] }
+					},
+					"response": []
+				},
+				{
+					"name": "8. Generate Test Signature",
+					"request": {
+						"auth": { "type": "noauth" },
+						"method": "POST",
+						"header": [
+							{ "key": "Content-Type", "value": "application/json" }
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n    \"event\": \"payment.succeeded\",\n    \"data\": {\n        \"transactionId\": \"tx_123\",\n        \"amount\": 49.99\n    }\n}"
+						},
+						"url": { "raw": "{{baseUrl}}/api/webhooks/generate_test_signature", "host": ["{{baseUrl}}"], "path": ["api","webhooks","generate_test_signature"] }
+					},
+					"response": []
+				},
+				{
+					"name": "9. Receive Webhook (simulate external)",
+					"request": {
+						"auth": { "type": "noauth" },
+						"method": "POST",
+						"header": [
+							{ "key": "Content-Type", "value": "application/json" },
+							{ "key": "X-Webhook-Signature", "value": "sha256=test_signature_value" },
+							{ "key": "X-Webhook-Event-Type", "value": "payment.succeeded" },
+							{ "key": "X-Webhook-Event-ID", "value": "evt_test_12345" }
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n    \"id\": \"evt_test_12345\",\n    \"type\": \"payment.succeeded\",\n    \"data\": {\n        \"transactionId\": \"tx_abc\",\n        \"amount\": 49.99,\n        \"currency\": \"USD\",\n        \"status\": \"succeeded\"\n    },\n    \"created\": \"2026-02-10T00:00:00Z\"\n}"
+						},
+						"url": { "raw": "{{baseUrl}}/api/webhooks/receive", "host": ["{{baseUrl}}"], "path": ["api","webhooks","receive"] }
+					},
+					"response": []
+				},
+				{
+					"name": "10. Delivery Analytics",
+					"request": {
+						"auth": { "type": "noauth" },
+						"method": "GET",
+						"header": [],
+						"url": { "raw": "{{baseUrl}}/api/webhooks/analytics/deliveries", "host": ["{{baseUrl}}"], "path": ["api","webhooks","analytics","deliveries"] }
+					},
+					"response": []
+				},
+				{
+					"name": "11. Delete Webhook Endpoint",
+					"request": {
+						"auth": { "type": "noauth" },
+						"method": "DELETE",
+						"header": [],
+						"url": { "raw": "{{baseUrl}}/api/webhooks/endpoints/{{webhookEndpointId}}", "host": ["{{baseUrl}}"], "path": ["api","webhooks","endpoints","{{webhookEndpointId}}"] }
+					},
+					"response": []
+				},
+				{
+					"name": "Webhook Health",
+					"request": {
+						"auth": { "type": "noauth" },
+						"method": "GET",
+						"header": [],
+						"url": { "raw": "{{baseUrl}}/api/webhooks/health", "host": ["{{baseUrl}}"], "path": ["api","webhooks","health"] }
+					},
+					"response": []
+				}
+			]
+		},
+		{
+			"name": "🗄️ Database Operations",
+			"description": "CRUD operations for customers, orders, and transactions. All require JWT.",
+			"item": [
+				{
+					"name": "DB Health",
+					"request": {
+						"method": "GET",
+						"header": [],
+						"url": { "raw": "{{baseUrl}}/api/database/health", "host": ["{{baseUrl}}"], "path": ["api","database","health"] }
+					},
+					"response": []
+				},
+				{
+					"name": "Migration Status",
+					"request": {
+						"method": "GET",
+						"header": [],
+						"url": { "raw": "{{baseUrl}}/api/database/migrations", "host": ["{{baseUrl}}"], "path": ["api","database","migrations"] }
+					},
+					"response": []
+				},
+				{
+					"name": "Run Migrations",
+					"request": {
+						"method": "POST",
+						"header": [],
+						"url": { "raw": "{{baseUrl}}/api/database/migrations/run", "host": ["{{baseUrl}}"], "path": ["api","database","migrations","run"] }
+					},
+					"response": []
+				},
+				{
+					"name": "DB Statistics",
+					"request": {
+						"method": "GET",
+						"header": [],
+						"url": { "raw": "{{baseUrl}}/api/database/statistics", "host": ["{{baseUrl}}"], "path": ["api","database","statistics"] }
+					},
+					"response": []
+				},
+				{
+					"name": "Create Customer",
+					"request": {
+						"method": "POST",
+						"header": [
+							{ "key": "Content-Type", "value": "application/json" }
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n    \"firstName\": \"Alice\",\n    \"lastName\": \"Johnson\",\n    \"email\": \"alice.johnson@example.com\",\n    \"phone\": \"+1-555-987-6543\",\n    \"address\": {\n        \"street\": \"456 Oak Ave\",\n        \"city\": \"Chicago\",\n        \"state\": \"IL\",\n        \"postalCode\": \"60601\",\n        \"country\": \"US\"\n    },\n    \"metadata\": { \"vip\": true }\n}"
+						},
+						"url": { "raw": "{{baseUrl}}/api/database/customers", "host": ["{{baseUrl}}"], "path": ["api","database","customers"] }
+					},
+					"response": [],
+					"event": [
+						{
+							"listen": "test",
+							"script": {
+								"type": "text/javascript",
+								"exec": [
+									"pm.test('Customer created', function () {",
+									"    pm.response.to.have.status(201);",
+									"    var json = pm.response.json();",
+									"    pm.expect(json.success).to.be.true;",
+									"    if (json.data && json.data.id) {",
+									"        pm.collectionVariables.set('customerId', json.data.id);",
+									"        console.log('✅ customerId:', json.data.id);",
+									"    }",
+									"});"
+								]
+							}
+						}
+					]
+				},
+				{
+					"name": "List Customers",
+					"request": {
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "{{baseUrl}}/api/database/customers?page=1&limit=10&sortBy=created_at&sortOrder=DESC",
+							"host": ["{{baseUrl}}"],
+							"path": ["api","database","customers"],
+							"query": [
+								{ "key": "page", "value": "1" },
+								{ "key": "limit", "value": "10" },
+								{ "key": "sortBy", "value": "created_at" },
+								{ "key": "sortOrder", "value": "DESC" }
+							]
+						}
+					},
+					"response": []
+				},
+				{
+					"name": "Get Customer by ID",
+					"request": {
+						"method": "GET",
+						"header": [],
+						"url": { "raw": "{{baseUrl}}/api/database/customers/{{customerId}}", "host": ["{{baseUrl}}"], "path": ["api","database","customers","{{customerId}}"] }
+					},
+					"response": []
+				},
+				{
+					"name": "Create Order",
+					"request": {
+						"method": "POST",
+						"header": [
+							{ "key": "Content-Type", "value": "application/json" }
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n    \"customerId\": \"{{customerId}}\",\n    \"amount\": 120.50,\n    \"currency\": \"USD\",\n    \"description\": \"Test order from Postman\",\n    \"metadata\": { \"source\": \"postman\" }\n}"
+						},
+						"url": { "raw": "{{baseUrl}}/api/database/orders", "host": ["{{baseUrl}}"], "path": ["api","database","orders"] }
+					},
+					"response": [],
+					"event": [
+						{
+							"listen": "test",
+							"script": {
+								"type": "text/javascript",
+								"exec": [
+									"pm.test('Order created', function () {",
+									"    pm.response.to.have.status(201);",
+									"    var json = pm.response.json();",
+									"    pm.expect(json.success).to.be.true;",
+									"    if (json.data && json.data.id) {",
+									"        pm.collectionVariables.set('orderId', json.data.id);",
+									"        console.log('✅ orderId:', json.data.id);",
+									"    }",
+									"});"
+								]
+							}
+						}
+					]
+				},
+				{
+					"name": "List Orders",
+					"request": {
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "{{baseUrl}}/api/database/orders?page=1&limit=10",
+							"host": ["{{baseUrl}}"],
+							"path": ["api","database","orders"],
+							"query": [
+								{ "key": "page", "value": "1" },
+								{ "key": "limit", "value": "10" }
+							]
+						}
+					},
+					"response": []
+				},
+				{
+					"name": "Get Order by ID",
+					"request": {
+						"method": "GET",
+						"header": [],
+						"url": { "raw": "{{baseUrl}}/api/database/orders/{{orderId}}", "host": ["{{baseUrl}}"], "path": ["api","database","orders","{{orderId}}"] }
+					},
+					"response": []
+				},
+				{
+					"name": "List Transactions",
+					"request": {
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "{{baseUrl}}/api/database/transactions?page=1&limit=10",
+							"host": ["{{baseUrl}}"],
+							"path": ["api","database","transactions"],
+							"query": [
+								{ "key": "page", "value": "1" },
+								{ "key": "limit", "value": "10" }
+							]
+						}
+					},
+					"response": []
+				},
+				{
+					"name": "Get Transaction by ID",
+					"request": {
+						"method": "GET",
+						"header": [],
+						"url": { "raw": "{{baseUrl}}/api/database/transactions/{{transactionDbId}}", "host": ["{{baseUrl}}"], "path": ["api","database","transactions","{{transactionDbId}}"] }
+					},
+					"response": []
+				}
+			]
+		},
+		{
+			"name": "📊 Distributed Tracing",
+			"description": "Observability endpoints for request tracing, performance metrics, and correlation tracking. All require JWT.",
+			"item": [
+				{
+					"name": "Tracing Health",
+					"request": {
+						"method": "GET",
+						"header": [],
+						"url": { "raw": "{{baseUrl}}/api/tracing/health", "host": ["{{baseUrl}}"], "path": ["api","tracing","health"] }
+					},
+					"response": []
+				},
+				{
+					"name": "Active Requests",
+					"request": {
+						"method": "GET",
+						"header": [],
+						"url": { "raw": "{{baseUrl}}/api/tracing/requests/active", "host": ["{{baseUrl}}"], "path": ["api","tracing","requests","active"] }
+					},
+					"response": []
+				},
+				{
+					"name": "Completed Requests",
+					"request": {
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "{{baseUrl}}/api/tracing/requests/completed?limit=20&offset=0",
+							"host": ["{{baseUrl}}"],
+							"path": ["api","tracing","requests","completed"],
+							"query": [
+								{ "key": "limit", "value": "20" },
+								{ "key": "offset", "value": "0" }
+							]
+						}
+					},
+					"response": []
+				},
+				{
+					"name": "Performance Metrics",
+					"request": {
+						"method": "GET",
+						"header": [],
+						"url": { "raw": "{{baseUrl}}/api/tracing/performance", "host": ["{{baseUrl}}"], "path": ["api","tracing","performance"] }
+					},
+					"response": []
+				},
+				{
+					"name": "Service Calls",
+					"request": {
+						"method": "GET",
+						"header": [],
+						"url": { "raw": "{{baseUrl}}/api/tracing/service-calls", "host": ["{{baseUrl}}"], "path": ["api","tracing","service-calls"] }
+					},
+					"response": []
+				},
+				{
+					"name": "Trace by Correlation ID",
+					"request": {
+						"method": "GET",
+						"header": [],
+						"url": { "raw": "{{baseUrl}}/api/tracing/correlation/{{correlationId}}", "host": ["{{baseUrl}}"], "path": ["api","tracing","correlation","{{correlationId}}"] }
+					},
+					"response": []
+				},
+				{
+					"name": "Clear Tracing Data",
+					"request": {
+						"method": "POST",
+						"header": [],
+						"url": { "raw": "{{baseUrl}}/api/tracing/clear", "host": ["{{baseUrl}}"], "path": ["api","tracing","clear"] }
+					},
+					"response": []
+				}
+			]
+		},
+		{
+			"name": "📦 Queue Monitoring",
+			"description": "Queue system health, statistics, and information. Requires JWT.",
+			"item": [
+				{
+					"name": "Queue Health",
+					"request": {
+						"method": "GET",
+						"header": [],
+						"url": { "raw": "{{baseUrl}}/api/queues/health", "host": ["{{baseUrl}}"], "path": ["api","queues","health"] }
+					},
+					"response": []
+				},
+				{
+					"name": "Queue Stats",
+					"request": {
+						"method": "GET",
+						"header": [],
+						"url": { "raw": "{{baseUrl}}/api/queues/stats", "host": ["{{baseUrl}}"], "path": ["api","queues","stats"] }
+					},
+					"response": []
+				},
+				{
+					"name": "Queue Info",
+					"request": {
+						"method": "GET",
+						"header": [],
+						"url": { "raw": "{{baseUrl}}/api/queues/info", "host": ["{{baseUrl}}"], "path": ["api","queues","info"] }
+					},
+					"response": []
+				}
+			]
+		}
+	]
+}

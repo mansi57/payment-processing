@@ -1,1098 +1,363 @@
-# 📊 Observability Strategy
+# Observability
 
-**Advanced Payment Processing System**  
-*Comprehensive monitoring, tracing, and logging for enterprise-grade payment operations*
-
----
-
-## 📋 **Table of Contents**
-
-1. [Overview](#-overview)
-2. [Metrics Catalog](#-metrics-catalog)
-3. [Distributed Tracing Strategy](#-distributed-tracing-strategy)
-4. [Logging Strategy](#-logging-strategy)
-5. [Alerting & Monitoring](#-alerting--monitoring)
-6. [Dashboards & Visualization](#-dashboards--visualization)
-7. [Performance Benchmarks](#-performance-benchmarks)
-8. [Compliance & Audit](#-compliance--audit)
+Metrics catalogue, distributed tracing strategy, and logging approach for the Payment Processing System.
 
 ---
 
-## 🎯 **Overview**
+## Table of Contents
 
-### **Observability Pillars**
-
-Our system implements the **three pillars of observability**:
-
-```mermaid
-graph LR
-    subgraph "Observability Pillars"
-        A[📊 Metrics] --> D[🔍 Insights]
-        B[🔗 Traces] --> D
-        C[📝 Logs] --> D
-    end
-    
-    D --> E[📈 Dashboards]
-    D --> F[🚨 Alerts]
-    D --> G[🔧 Troubleshooting]
-```
-
-### **Key Principles**
-
-1. **🎯 Business-First**: Monitor what matters to the business
-2. **🔄 End-to-End**: Track requests across all system boundaries
-3. **📊 Real-Time**: Immediate visibility into system health
-4. **🛡️ Security-Aware**: Monitor for suspicious activities
-5. **💰 Cost-Effective**: Balance observability with resource usage
+1. [Overview](#overview)
+2. [Prometheus Metrics Catalogue](#prometheus-metrics-catalogue)
+3. [Distributed Tracing Strategy](#distributed-tracing-strategy)
+4. [Logging Strategy](#logging-strategy)
+5. [Health Check Endpoints](#health-check-endpoints)
+6. [Monitoring Stack](#monitoring-stack)
 
 ---
 
-## 📊 **Metrics Catalog**
+## Overview
 
-### **1. Business Metrics**
+The system implements the **three pillars of observability**:
 
-#### **Payment Processing**
-```typescript
-interface PaymentMetrics {
-  // Volume Metrics
-  paymentsProcessed: {
-    total: number;
-    byStatus: Record<TransactionStatus, number>;
-    byPaymentMethod: Record<string, number>;
-    byAmount: {
-      small: number;    // < $100
-      medium: number;   // $100-$1000
-      large: number;    // > $1000
-    };
-  };
-
-  // Revenue Metrics
-  revenue: {
-    totalAmount: number;
-    successfulAmount: number;
-    refundedAmount: number;
-    byTimePeriod: {
-      hourly: number[];
-      daily: number[];
-      monthly: number[];
-    };
-  };
-
-  // Success Rates
-  successRates: {
-    overall: number;              // %
-    byPaymentMethod: Record<string, number>;
-    byAmount: Record<string, number>;
-    byTimeOfDay: number[];
-  };
-}
-```
-
-#### **Subscription Metrics**
-```typescript
-interface SubscriptionMetrics {
-  // Lifecycle Metrics
-  subscriptions: {
-    active: number;
-    paused: number;
-    cancelled: number;
-    pastDue: number;
-    newSignups: number;
-    churn: number;
-  };
-
-  // Revenue Metrics
-  recurringRevenue: {
-    mrr: number;                  // Monthly Recurring Revenue
-    arr: number;                  // Annual Recurring Revenue
-    averageValue: number;
-    lifetimeValue: number;
-  };
-
-  // Health Metrics
-  churnRate: number;              // %
-  retentionRate: number;          // %
-  dunningSuccess: number;         // %
-}
-```
-
-### **2. Technical Metrics**
-
-#### **API Performance**
-```typescript
-interface ApiMetrics {
-  // Request Metrics
-  requests: {
-    total: number;
-    perSecond: number;
-    byEndpoint: Record<string, number>;
-    byStatusCode: Record<number, number>;
-  };
-
-  // Latency Metrics
-  responseTime: {
-    p50: number;                  // ms
-    p95: number;                  // ms
-    p99: number;                  // ms
-    average: number;              // ms
-    maximum: number;              // ms
-  };
-
-  // Throughput
-  throughput: {
-    requestsPerSecond: number;
-    peakRps: number;
-    averageRps: number;
-  };
-
-  // Error Rates
-  errorRate: {
-    overall: number;              // %
-    byEndpoint: Record<string, number>;
-    clientErrors: number;         // 4xx
-    serverErrors: number;         // 5xx
-  };
-}
-```
-
-#### **Database Metrics**
-```typescript
-interface DatabaseMetrics {
-  // Connection Pool
-  connections: {
-    total: number;
-    active: number;
-    idle: number;
-    waiting: number;
-    maxUsed: number;
-  };
-
-  // Query Performance
-  queries: {
-    totalExecuted: number;
-    averageExecutionTime: number; // ms
-    slowQueries: number;          // > 1000ms
-    failedQueries: number;
-  };
-
-  // Resource Usage
-  storage: {
-    totalSize: number;            // GB
-    tablesSizes: Record<string, number>;
-    indexSizes: Record<string, number>;
-  };
-
-  // Transaction Metrics
-  transactions: {
-    committed: number;
-    rolledBack: number;
-    deadlocks: number;
-    lockWaits: number;
-  };
-}
-```
-
-#### **Queue System Metrics**
-```typescript
-interface QueueMetrics {
-  // Job Processing
-  jobs: {
-    completed: number;
-    failed: number;
-    waiting: number;
-    active: number;
-    delayed: number;
-  };
-
-  // Processing Performance
-  processing: {
-    averageProcessingTime: number; // ms
-    jobThroughput: number;        // jobs/sec
-    maxConcurrentJobs: number;
-  };
-
-  // Queue Health
-  health: {
-    queueDepth: Record<string, number>;
-    oldestWaitingJob: number;     // ms
-    deadLetterCount: number;
-    retryAttempts: number;
-  };
-
-  // Redis Metrics (if using Redis)
-  redis: {
-    connectedClients: number;
-    usedMemory: number;           // bytes
-    hitRate: number;              // %
-    keyspaceHits: number;
-    keyspaceMisses: number;
-  };
-}
-```
-
-### **3. Infrastructure Metrics**
-
-#### **System Resources**
-```typescript
-interface SystemMetrics {
-  // CPU Usage
-  cpu: {
-    usage: number;                // %
-    loadAverage: {
-      oneMin: number;
-      fiveMin: number;
-      fifteenMin: number;
-    };
-  };
-
-  // Memory Usage
-  memory: {
-    totalMemory: number;          // bytes
-    usedMemory: number;           // bytes
-    freeMemory: number;           // bytes
-    heapUsage: {
-      used: number;               // bytes
-      total: number;              // bytes
-    };
-  };
-
-  // Network
-  network: {
-    bytesReceived: number;
-    bytesSent: number;
-    packetsReceived: number;
-    packetsSent: number;
-    errors: number;
-  };
-
-  // Disk I/O
-  disk: {
-    readBytes: number;
-    writeBytes: number;
-    readOps: number;
-    writeOps: number;
-    usage: number;                // %
-  };
-}
-```
-
-### **4. Security Metrics**
-
-#### **Authentication & Authorization**
-```typescript
-interface SecurityMetrics {
-  // Authentication
-  authentication: {
-    successfulLogins: number;
-    failedLogins: number;
-    suspiciousAttempts: number;
-    blockedIPs: number;
-  };
-
-  // API Security
-  apiSecurity: {
-    rateLimitHits: number;
-    invalidApiKeys: number;
-    suspiciousRequests: number;
-    blockedRequests: number;
-  };
-
-  // Data Protection
-  dataProtection: {
-    encryptionOperations: number;
-    decryptionOperations: number;
-    tokenGenerations: number;
-    dataAccessAttempts: number;
-  };
-
-  // Compliance
-  compliance: {
-    auditLogEntries: number;
-    dataRetentionActions: number;
-    consentTracking: number;
-    privacyRequests: number;
-  };
-}
-```
+| Pillar | Implementation | Endpoint / Mechanism |
+|---|---|---|
+| **Metrics** | Prometheus counters, gauges, histograms via `prom-client` | `GET /metrics` |
+| **Tracing** | Correlation IDs (`corr_*`) and request IDs (`req_*`) propagated across API, queues, and workers | `X-Correlation-ID` / `X-Request-ID` headers |
+| **Logging** | Structured JSON logs via Winston, enriched with correlation context | `stdout` / file transports |
 
 ---
 
-## 🔗 **Distributed Tracing Strategy**
+## Prometheus Metrics Catalogue
 
-### **Tracing Architecture**
+All metrics are exposed at `GET /metrics` in Prometheus exposition format. The metric prefix is `payment_api_`.
 
-```mermaid
-sequenceDiagram
-    participant C as Client
-    participant API as API Gateway
-    participant PS as Payment Service
-    participant DB as Database
-    participant Q as Queue
-    participant W as Webhook Worker
+### Node.js Default Metrics
 
-    C->>+API: Request (generates correlationId)
-    Note over API: correlationId: corr_abc123
-    Note over API: requestId: req_xyz789
-    
-    API->>+PS: Process Payment (propagates IDs)
-    Note over PS: [corr_abc123|req_xyz789][payment::process]
-    
-    PS->>+DB: Store Transaction
-    Note over DB: [corr_abc123|req_xyz789][database::transaction]
-    DB-->>-PS: Success
-    
-    PS->>+Q: Emit Event
-    Note over Q: [corr_abc123|req_xyz789][queue::webhook-delivery]
-    Q-->>-PS: Queued
-    
-    PS-->>-API: Payment Result
-    API-->>-C: Response (includes correlationId)
-    
-    Q->>+W: Process Webhook
-    Note over W: [corr_abc123|req_xyz789][webhook::delivery]
-    W-->>-Q: Complete
-```
+Collected automatically by `prom-client`:
 
-### **Correlation ID Generation**
+| Metric | Type | Description |
+|---|---|---|
+| `payment_api_process_cpu_user_seconds_total` | Counter | Total CPU time in user mode |
+| `payment_api_process_cpu_system_seconds_total` | Counter | Total CPU time in system mode |
+| `payment_api_process_resident_memory_bytes` | Gauge | Resident memory size |
+| `payment_api_process_heap_bytes` | Gauge | V8 heap size |
+| `payment_api_nodejs_eventloop_lag_seconds` | Gauge | Event-loop lag |
+| `payment_api_nodejs_active_handles_total` | Gauge | Active libuv handles |
+| `payment_api_nodejs_active_requests_total` | Gauge | Active libuv requests |
+| `payment_api_nodejs_gc_duration_seconds` | Histogram | GC pause duration by type |
 
-```typescript
-// Correlation ID Format: corr_{timestamp}_{uuid}
-const generateCorrelationId = (): string => {
-  const timestamp = Date.now().toString(36);
-  const uuid = crypto.randomUUID().split('-')[0];
-  return `corr_${timestamp}_${uuid}`;
-};
+### HTTP Request Metrics
 
-// Request ID Format: req_{uuid}
-const generateRequestId = (): string => {
-  const uuid = crypto.randomUUID().split('-')[0];
-  return `req_${uuid}`;
-};
-```
+| Metric | Type | Labels | Description |
+|---|---|---|---|
+| `payment_api_http_request_duration_seconds` | Histogram | `method`, `route`, `status_code` | Request duration in seconds (buckets: 10 ms – 10 s) |
+| `payment_api_http_requests_total` | Counter | `method`, `route`, `status_code` | Total HTTP requests |
+| `payment_api_http_active_requests` | Gauge | — | Currently in-flight requests |
 
-### **Trace Context Propagation**
+### Payment Metrics
 
-```typescript
-interface TraceContext {
-  correlationId: string;
-  requestId: string;
-  parentSpanId?: string;
-  traceId?: string;
-  baggage?: Record<string, string>;
-}
+| Metric | Type | Labels | Description |
+|---|---|---|---|
+| `payment_api_transactions_total` | Counter | `type`, `status` | Total payment transactions (purchase, authorize, capture, void, refund × succeeded, failed, …) |
+| `payment_api_transaction_amount_total` | Counter | `type`, `currency` | Total monetary amount processed (USD) |
 
-// HTTP Headers for trace propagation
-const TRACE_HEADERS = {
-  CORRELATION_ID: 'X-Correlation-ID',
-  REQUEST_ID: 'X-Request-ID',
-  TRACE_ID: 'X-Trace-ID',
-  SPAN_ID: 'X-Span-ID'
-};
-```
+### Authentication Metrics
 
-### **Service Call Tracking**
+| Metric | Type | Labels | Description |
+|---|---|---|---|
+| `payment_api_auth_attempts_total` | Counter | `action`, `status` | Login/register attempts (success/failure) |
 
-```typescript
-interface ServiceCall {
-  serviceName: string;
-  operationName: string;
-  startTime: number;
-  endTime?: number;
-  duration?: number;
-  success: boolean;
-  error?: string;
-  metadata?: Record<string, any>;
-}
+### Webhook Metrics
 
-// Example service call logging
-const trackServiceCall = async (
-  operation: string,
-  fn: () => Promise<any>,
-  context: TraceContext
-): Promise<any> => {
-  const startTime = Date.now();
-  try {
-    const result = await fn();
-    const duration = Date.now() - startTime;
-    
-    tracingLogger.info(
-      `Service call completed: ${operation}`,
-      'service',
-      operation,
-      undefined,
-      { duration, success: true }
-    );
-    
-    return result;
-  } catch (error) {
-    const duration = Date.now() - startTime;
-    tracingLogger.error(
-      `Service call failed: ${operation}`,
-      'service',
-      operation,
-      undefined,
-      { duration, success: false, error: error.message }
-    );
-    throw error;
-  }
-};
-```
+| Metric | Type | Labels | Description |
+|---|---|---|---|
+| `payment_api_webhook_deliveries_total` | Counter | `event_type`, `status` | Webhook delivery attempts by event type and outcome |
 
-### **Trace Sampling Strategy**
+### Subscription Metrics
 
-```typescript
-const tracingConfig = {
-  // Sampling Rates
-  sampling: {
-    production: {
-      default: 0.1,        // 10% of requests
-      errors: 1.0,         // 100% of errors
-      critical: 1.0,       // 100% of critical operations
-      slow: 0.5           // 50% of slow requests
-    },
-    development: {
-      default: 1.0         // 100% in development
-    }
-  },
+| Metric | Type | Labels | Description |
+|---|---|---|---|
+| `payment_api_subscriptions_active` | Gauge | — | Currently active subscriptions |
+| `payment_api_subscription_billing_total` | Counter | `status` | Subscription billing attempts (success/failure) |
 
-  // Performance Thresholds
-  thresholds: {
-    slowRequest: 3000,     // ms
-    criticalOperations: [
-      'payment.process',
-      'subscription.create',
-      'webhook.deliver'
-    ]
-  }
-};
-```
+### Database Pool Metrics
+
+| Metric | Type | Labels | Description |
+|---|---|---|---|
+| `payment_api_db_pool_total` | Gauge | — | Total connections in the PostgreSQL pool |
+| `payment_api_db_pool_idle` | Gauge | — | Idle connections in the pool |
+| `payment_api_db_pool_waiting` | Gauge | — | Queued connection requests waiting for a free slot |
+
+### Idempotency Metrics
+
+| Metric | Type | Labels | Description |
+|---|---|---|---|
+| `payment_api_idempotency_hits_total` | Counter | — | Duplicate requests caught by idempotency cache |
+| `payment_api_idempotency_misses_total` | Counter | — | New (non-duplicate) requests |
+
+### Error Metrics
+
+| Metric | Type | Labels | Description |
+|---|---|---|---|
+| `payment_api_errors_total` | Counter | `type`, `code` | Application errors by type and HTTP status code |
+
+### Tracing Metrics
+
+| Metric | Type | Labels | Description |
+|---|---|---|---|
+| `payment_api_tracing_active_requests` | Gauge | — | Currently active traced requests |
+| `payment_api_tracing_completed_requests` | Gauge | — | Completed requests in the tracing buffer |
+| `payment_api_tracing_avg_duration_5m_ms` | Gauge | — | Average request duration over the last 5 minutes |
+| `payment_api_tracing_success_rate_5m` | Gauge | — | Success rate (0–1) over the last 5 minutes |
+
+### Application Info
+
+| Metric | Type | Labels | Description |
+|---|---|---|---|
+| `payment_api_app_info` | Gauge | `version`, `environment`, `node_version` | Static label set identifying the running instance |
+
+### Route Normalisation
+
+To prevent high-cardinality label values, dynamic path segments are normalised:
+
+| Raw Path | Normalised |
+|---|---|
+| `/api/payments/capture/txn_abc123` | `/api/payments/capture/:transactionId` |
+| `/api/database/customers/550e8400-…` | `/api/database/customers/:id` |
+| `/api/subscriptions/sub_xyz` | `/api/subscriptions/:subscriptionId` |
 
 ---
 
-## 📝 **Logging Strategy**
+## Distributed Tracing Strategy
 
-### **Log Levels & Categories**
+### ID Generation
 
-```typescript
-enum LogLevel {
-  ERROR = 'error',
-  WARN = 'warn',
-  INFO = 'info',
-  DEBUG = 'debug'
-}
+Every incoming HTTP request is assigned two IDs by the `correlationId` middleware:
 
-enum LogCategory {
-  HTTP = 'http',
-  DATABASE = 'database',
-  PAYMENT = 'payment',
-  SUBSCRIPTION = 'subscription',
-  WEBHOOK = 'webhook',
-  QUEUE = 'queue',
-  SECURITY = 'security',
-  SYSTEM = 'system'
-}
+| ID | Format | Purpose |
+|---|---|---|
+| **Correlation ID** | `corr_<uuid>` | Groups all operations caused by a single external event. Propagated across queue jobs. |
+| **Request ID** | `req_<uuid>` | Uniquely identifies a single HTTP request. |
+
+Clients can supply their own `X-Correlation-ID` header; if absent one is generated automatically.
+
+### Header Propagation
+
+| Header | Direction | Description |
+|---|---|---|
+| `X-Correlation-ID` | Request → Response | Correlation ID |
+| `X-Request-ID` | Request → Response | Request ID |
+| `X-Trace-ID` | Request | Optional external trace ID |
+| `X-Timestamp` | Response | Server timestamp |
+
+### Trace Context Flow
+
+```
+Client
+  │
+  │  X-Correlation-ID: corr_abc123
+  ▼
+API Server (correlationId middleware)
+  │  → attaches corr_abc123 to req object
+  │  → attaches req_xyz789
+  │  → starts performance timer
+  │
+  ├──▶ Service Layer
+  │      logger.info("Processing payment", { correlationId: "corr_abc123" })
+  │
+  ├──▶ Repository Layer
+  │      INSERT INTO orders ... correlation_id = 'corr_abc123'
+  │
+  ├──▶ EventEmitter
+  │      enqueues Bull job with { correlationId: "corr_abc123" }
+  │
+  ▼
+Queue Worker (picks up job)
+  │  logger.info("Delivering webhook", { correlationId: "corr_abc123" })
+  │  HTTP POST to merchant with X-Correlation-ID header
+  ▼
+Response
+  │  X-Correlation-ID: corr_abc123
+  │  X-Request-ID: req_xyz789
 ```
 
-### **Structured Log Format**
+### Request Tracking
 
-```typescript
-interface LogEntry {
-  timestamp: string;           // ISO 8601
-  level: LogLevel;
-  correlationId?: string;
-  requestId?: string;
-  service: string;
-  operation: string;
-  message: string;
-  metadata?: Record<string, any>;
-  error?: {
-    name: string;
-    message: string;
-    stack?: string;
-  };
-  performance?: {
-    duration: number;
-    threshold: number;
-  };
-}
+The middleware maintains in-memory maps of active and recently completed requests:
 
-// Example log entry
+| Store | Max Size | Purpose |
+|---|---|---|
+| `activeRequests` | 10,000 | Currently in-flight requests (for `/api/tracing/active`) |
+| `completedRequests` | 1,000 (ring buffer) | Recently finished requests (for `/api/tracing/stats`) |
+
+Statistics provided by `GET /api/tracing/stats`:
+
+- Total requests processed
+- Active request count
+- Last-5-minute average duration
+- Last-5-minute success rate
+- Per-endpoint breakdown
+
+---
+
+## Logging Strategy
+
+### Logger Configuration
+
+The application uses **Winston** with two transports:
+
+| Transport | Target | Level | Format |
+|---|---|---|---|
+| Console | `stdout` | `info` (configurable via `LOG_LEVEL`) | Colourised, human-readable in dev; JSON in production |
+| File | `logs/application.log` | `info` | JSON, max 10 MB per file, 5 rotated files |
+
+### Structured Log Format
+
+Every log entry includes:
+
+```json
 {
-  "timestamp": "2025-09-20T10:47:19.062Z",
+  "timestamp": "2026-02-16T10:47:19.062Z",
   "level": "info",
-  "correlationId": "corr_abc123_def456",
-  "requestId": "req_xyz789_ghi012",
+  "correlationId": "corr_abc123",
+  "requestId": "req_xyz789",
   "service": "payment",
   "operation": "process",
   "message": "Payment processing completed successfully",
   "metadata": {
-    "amount": 99.99,
+    "amount": 49.99,
     "currency": "USD",
-    "paymentMethod": "card",
-    "gatewayResponse": "approved"
-  },
-  "performance": {
-    "duration": 1250,
-    "threshold": 3000
+    "transactionId": "120078194443"
   }
 }
 ```
 
-### **Log Aggregation Strategy**
+### Tracing-Aware Logger
 
-```mermaid
-flowchart TD
-    subgraph "Application Layer"
-        A[API Server 1] --> D[Log Aggregator]
-        B[API Server 2] --> D
-        C[Worker Processes] --> D
-    end
-    
-    subgraph "Processing Layer"
-        D --> E[Log Parser]
-        E --> F[Log Enricher]
-        F --> G[Log Router]
-    end
-    
-    subgraph "Storage Layer"
-        G --> H[Real-time Stream]
-        G --> I[Search Index]
-        G --> J[Long-term Archive]
-    end
-    
-    subgraph "Analysis Layer"
-        H --> K[Monitoring Dashboard]
-        I --> L[Log Search]
-        J --> M[Compliance Reports]
-    end
-```
-
-### **Log Retention Policy**
+The `tracingLogger` utility (`src/utils/tracingLogger.ts`) automatically injects correlation context into every log call:
 
 ```typescript
-const logRetentionConfig = {
-  realTime: {
-    duration: '7 days',
-    purpose: 'Active monitoring and alerting'
-  },
-  searchable: {
-    duration: '90 days',
-    purpose: 'Troubleshooting and analysis'
-  },
-  archive: {
-    duration: '7 years',
-    purpose: 'Compliance and audit'
-  },
-  
-  // Special retention for sensitive operations
-  specialRetention: {
-    paymentTransactions: '10 years',
-    securityEvents: '5 years',
-    auditLogs: '7 years',
-    errorLogs: '2 years'
-  }
-};
+logger.info(message, service, operation, correlationId?, metadata?)
+logger.error(message, service, operation, correlationId?, metadata?)
 ```
 
-### **Sensitive Data Handling**
+### Log Categories
 
-```typescript
-// Data masking for logs
-const maskSensitiveData = (data: any): any => {
-  const sensitiveFields = [
-    'cardNumber', 'cvv', 'ssn', 'password',
-    'apiKey', 'token', 'secret'
-  ];
-  
-  const masked = { ...data };
-  
-  sensitiveFields.forEach(field => {
-    if (masked[field]) {
-      if (field === 'cardNumber') {
-        // Show only last 4 digits
-        masked[field] = `****-****-****-${masked[field].slice(-4)}`;
-      } else {
-        masked[field] = '[REDACTED]';
-      }
-    }
-  });
-  
-  return masked;
-};
-```
+| Category | Examples |
+|---|---|
+| `http` | Request received, response sent, slow request warning |
+| `payment` | Payment processed, gateway response, transaction stored |
+| `webhook` | Event emitted, delivery attempted, delivery succeeded/failed |
+| `queue` | Job enqueued, job completed, job failed, queue health |
+| `database` | Migration applied, connection pool stats, query error |
+| `security` | Auth attempt, token validation, rate limit hit |
+| `system` | Startup, shutdown, configuration loaded |
+
+### Sensitive Data Handling
+
+- **Card numbers** and **CVV** are never logged.
+- The `patchAuthorizeNet.ts` utility wraps the Authorize.Net SDK's internal logger to prevent it from printing raw card data.
+- Log entries for payment operations only include `last4` and `brand`.
+
+### Log Levels
+
+| Level | When to Use |
+|---|---|
+| `error` | Unrecoverable failures, unhandled exceptions, gateway errors |
+| `warn` | Degraded performance, retry attempts, approaching limits |
+| `info` | Normal operations — request handling, job processing, status changes |
+| `debug` | Verbose detail for local development — full payloads, timing breakdowns |
 
 ---
 
-## 🚨 **Alerting & Monitoring**
+## Health Check Endpoints
 
-### **Alert Categories**
+### `GET /health` (Public)
 
-#### **Critical Alerts** (Immediate Response)
-```yaml
-critical_alerts:
-  - name: "Payment Processing Failure"
-    condition: "payment_error_rate > 5% for 2 minutes"
-    severity: "P1"
-    notification: ["pager", "slack", "email"]
-    
-  - name: "Database Connection Pool Exhausted"
-    condition: "db_connections_available < 5"
-    severity: "P1"
-    notification: ["pager", "slack"]
-    
-  - name: "API Response Time Degradation"
-    condition: "api_response_time_p95 > 5000ms for 5 minutes"
-    severity: "P1"
-    notification: ["slack", "email"]
-```
+Returns overall application health:
 
-#### **Warning Alerts** (24-hour Response)
-```yaml
-warning_alerts:
-  - name: "High Queue Depth"
-    condition: "queue_depth > 1000 for 10 minutes"
-    severity: "P2"
-    notification: ["slack", "email"]
-    
-  - name: "Elevated Error Rate"
-    condition: "overall_error_rate > 2% for 10 minutes"
-    severity: "P2"
-    notification: ["slack"]
-    
-  - name: "Memory Usage High"
-    condition: "memory_usage > 85% for 15 minutes"
-    severity: "P2"
-    notification: ["email"]
-```
-
-#### **Information Alerts** (Business Hours Response)
-```yaml
-info_alerts:
-  - name: "Daily Transaction Volume"
-    condition: "daily_transaction_count < yesterday * 0.8"
-    severity: "P3"
-    notification: ["email"]
-    
-  - name: "Subscription Churn Increase"
-    condition: "daily_churn_rate > 30_day_average * 1.5"
-    severity: "P3"
-    notification: ["email"]
-```
-
-### **Alert Thresholds**
-
-```typescript
-const alertThresholds = {
-  // Performance Thresholds
-  performance: {
-    apiResponseTime: {
-      warning: 3000,     // ms
-      critical: 5000     // ms
-    },
-    databaseQueryTime: {
-      warning: 1000,     // ms
-      critical: 5000     // ms
-    },
-    queueProcessingTime: {
-      warning: 30000,    // ms
-      critical: 120000   // ms
-    }
+```json
+{
+  "status": "healthy",
+  "timestamp": "2026-02-16T10:47:19.062Z",
+  "version": "1.0.0",
+  "uptime": 3600,
+  "database": {
+    "connected": true,
+    "totalConnections": 20,
+    "idleConnections": 18
   },
-
-  // Error Rate Thresholds
-  errorRates: {
-    overall: {
-      warning: 0.02,     // 2%
-      critical: 0.05     // 5%
-    },
-    payment: {
-      warning: 0.01,     // 1%
-      critical: 0.03     // 3%
-    },
-    webhook: {
-      warning: 0.05,     // 5%
-      critical: 0.15     // 15%
-    }
-  },
-
-  // Resource Thresholds
-  resources: {
-    cpu: {
-      warning: 0.8,      // 80%
-      critical: 0.95     // 95%
-    },
-    memory: {
-      warning: 0.85,     // 85%
-      critical: 0.95     // 95%
-    },
-    disk: {
-      warning: 0.8,      // 80%
-      critical: 0.95     // 95%
-    }
+  "features": {
+    "distributed_tracing": true,
+    "queue_based_processing": true,
+    "database_persistence": true
   }
-};
-```
-
----
-
-## 📈 **Dashboards & Visualization**
-
-### **Executive Dashboard**
-```typescript
-interface ExecutiveDashboard {
-  // Business KPIs (Real-time)
-  kpis: {
-    totalRevenue: number;
-    transactionVolume: number;
-    successRate: number;
-    averageTransactionValue: number;
-  };
-
-  // Trends (24h, 7d, 30d)
-  trends: {
-    revenueGrowth: number;        // %
-    volumeGrowth: number;         // %
-    customerGrowth: number;       // %
-  };
-
-  // Health Indicators
-  systemHealth: {
-    apiAvailability: number;      // %
-    databaseHealth: 'healthy' | 'degraded' | 'critical';
-    queueHealth: 'healthy' | 'degraded' | 'critical';
-  };
 }
 ```
 
-### **Operations Dashboard**
-```typescript
-interface OperationsDashboard {
-  // System Performance
-  performance: {
-    requestsPerSecond: number;
-    averageResponseTime: number;
-    errorRate: number;
-    activeConnections: number;
-  };
+### `GET /api/queues/health` (JWT required)
 
-  // Infrastructure
-  infrastructure: {
-    cpuUsage: number;
-    memoryUsage: number;
-    diskUsage: number;
-    networkTraffic: number;
-  };
+Returns per-queue health:
 
-  // Queue Status
-  queues: {
-    jobsProcessed: number;
-    jobsWaiting: number;
-    jobsFailed: number;
-    averageProcessingTime: number;
-  };
-}
-```
-
-### **Security Dashboard**
-```typescript
-interface SecurityDashboard {
-  // Threat Detection
-  threats: {
-    suspiciousRequests: number;
-    blockedIPs: number;
-    failedAuthAttempts: number;
-    rateLimitViolations: number;
-  };
-
-  // Compliance
-  compliance: {
-    auditEvents: number;
-    dataAccessRequests: number;
-    privacyRequests: number;
-    retentionActions: number;
-  };
-
-  // Data Protection
-  dataProtection: {
-    encryptionStatus: 'compliant' | 'non-compliant';
-    tokenizationRate: number;
-    keyRotationStatus: 'up-to-date' | 'due' | 'overdue';
-  };
-}
-```
-
----
-
-## 📊 **Performance Benchmarks**
-
-### **Response Time SLAs**
-
-```typescript
-const responseTimes = {
-  // API Endpoints (95th percentile)
-  api: {
-    payment: {
-      target: 2000,      // ms
-      warning: 3000,     // ms
-      critical: 5000     // ms
-    },
-    subscription: {
-      target: 1500,      // ms
-      warning: 2500,     // ms
-      critical: 4000     // ms
-    },
-    webhook: {
-      target: 1000,      // ms
-      warning: 2000,     // ms
-      critical: 3000     // ms
-    }
-  },
-
-  // Database Queries (95th percentile)
-  database: {
-    simpleQuery: {
-      target: 50,        // ms
-      warning: 200,      // ms
-      critical: 1000     // ms
-    },
-    complexQuery: {
-      target: 500,       // ms
-      warning: 2000,     // ms
-      critical: 5000     // ms
-    }
-  },
-
-  // Queue Processing (average)
-  queue: {
-    webhookDelivery: {
-      target: 5000,      // ms
-      warning: 15000,    // ms
-      critical: 60000    // ms
-    },
-    eventProcessing: {
-      target: 1000,      // ms
-      warning: 5000,     // ms
-      critical: 15000    // ms
-    }
-  }
-};
-```
-
-### **Throughput Targets**
-
-```typescript
-const throughputTargets = {
-  // Requests per second
-  api: {
-    peak: 1000,          // req/sec
-    sustained: 500,      // req/sec
-    burst: 2000         // req/sec (short duration)
-  },
-
-  // Database transactions per second
-  database: {
-    reads: 5000,         // TPS
-    writes: 1000,        // TPS
-    concurrent: 100      // active connections
-  },
-
-  // Queue job processing
-  queue: {
-    webhooks: 100,       // jobs/sec
-    events: 500,         // jobs/sec
-    deadLetter: 10       // jobs/sec (recovery)
-  }
-};
-```
-
----
-
-## 🛡️ **Compliance & Audit**
-
-### **Audit Trail Requirements**
-
-```typescript
-interface AuditRequirements {
-  // Data Retention
-  retention: {
-    paymentTransactions: '10 years';
-    customerData: '7 years';
-    auditLogs: '7 years';
-    securityEvents: '5 years';
-  };
-
-  // Log Completeness
-  completeness: {
-    dataChanges: 'all';           // 100% coverage
-    systemAccess: 'all';          // 100% coverage
-    configChanges: 'all';         // 100% coverage
-    securityEvents: 'all';        // 100% coverage
-  };
-
-  // Log Integrity
-  integrity: {
-    immutable: true;              // Logs cannot be modified
-    signed: true;                 // Cryptographic signatures
-    timestamped: true;            // Trusted timestamps
-  };
-}
-```
-
-### **Regulatory Compliance Monitoring**
-
-```typescript
-interface ComplianceMonitoring {
-  // PCI DSS
-  pciDss: {
-    dataEncryption: boolean;      // All sensitive data encrypted
-    networkSecurity: boolean;     // Network segmentation
-    accessControl: boolean;       // Role-based access
-    monitoring: boolean;          // Continuous monitoring
-  };
-
-  // GDPR
-  gdpr: {
-    dataMinimization: boolean;    // Only necessary data
-    consentTracking: boolean;     // Consent management
-    rightToErasure: boolean;      // Data deletion capability
-    dataPortability: boolean;     // Data export capability
-  };
-
-  // SOX (if applicable)
-  sox: {
-    changeControl: boolean;       // Controlled deployments
-    segregationOfDuties: boolean; // Role separation
-    auditTrail: boolean;          // Complete audit logs
-  };
-}
-```
-
-### **Compliance Reporting**
-
-```typescript
-const complianceReports = {
-  daily: [
-    'failed_authentication_attempts',
-    'suspicious_activity_summary',
-    'data_access_violations'
-  ],
-
-  weekly: [
-    'system_security_status',
-    'data_retention_compliance',
-    'access_control_review'
-  ],
-
-  monthly: [
-    'comprehensive_security_assessment',
-    'compliance_metrics_summary',
-    'risk_assessment_update'
-  ],
-
-  quarterly: [
-    'regulatory_compliance_report',
-    'security_audit_summary',
-    'business_continuity_review'
+```json
+{
+  "success": true,
+  "status": "healthy",
+  "system": { "ready": true, "queues": { "total": 5, "healthy": 5 } },
+  "queues": [
+    { "name": "webhook-delivery", "status": "healthy", "workers": 2, "redisConnected": true },
+    { "name": "database-events", "status": "healthy", "workers": 2, "redisConnected": true },
+    { "name": "payment-events", "status": "healthy", "workers": 2, "redisConnected": true },
+    { "name": "notification-events", "status": "healthy", "workers": 2, "redisConnected": true },
+    { "name": "cleanup-jobs", "status": "healthy", "workers": 2, "redisConnected": true }
   ]
-};
+}
 ```
+
+### `GET /api/database/health` (JWT required)
+
+Returns database connectivity and pool statistics.
 
 ---
 
-## 🔧 **Implementation Guide**
+## Monitoring Stack
 
-### **Metrics Collection Setup**
+### Prometheus
 
-```typescript
-// Metrics collection configuration
-const metricsConfig = {
-  // Collection intervals
-  intervals: {
-    realTime: 1000,      // ms - for critical metrics
-    standard: 10000,     // ms - for most metrics
-    batch: 60000         // ms - for heavy metrics
-  },
+Configured in `prometheus.yml`. Scrape targets:
 
-  // Storage configuration
-  storage: {
-    retention: {
-      raw: '7 days',
-      aggregated: '90 days',
-      historical: '2 years'
-    },
-    compression: true,
-    encryption: true
-  },
+| Job | Target | Interval |
+|---|---|---|
+| `payment-api` | `payment-api:3000/metrics` | 10 s |
+| `node-app-metrics` | `payment-api:3000/metrics` | 15 s |
+| `queue-worker` | `queue-worker:3000/metrics` | 15 s |
 
-  // Export configuration
-  export: {
-    prometheus: true,
-    datadog: false,
-    newRelic: false,
-    custom: true
-  }
-};
+Start the monitoring profile:
+
+```bash
+docker compose --profile monitoring up -d
 ```
 
-### **Logging Configuration**
+### Grafana
 
-```typescript
-// Winston logger configuration
-const loggingConfig = {
-  level: process.env.LOG_LEVEL || 'info',
-  format: winston.format.combine(
-    winston.format.timestamp(),
-    winston.format.errors({ stack: true }),
-    winston.format.json()
-  ),
-  
-  transports: [
-    // Console output (development)
-    new winston.transports.Console({
-      format: winston.format.combine(
-        winston.format.colorize(),
-        winston.format.simple()
-      )
-    }),
-    
-    // File output (production)
-    new winston.transports.File({
-      filename: 'logs/application.log',
-      maxsize: 10485760, // 10MB
-      maxFiles: 5,
-      tailable: true
-    }),
-    
-    // Error file
-    new winston.transports.File({
-      filename: 'logs/errors.log',
-      level: 'error',
-      maxsize: 10485760,
-      maxFiles: 5
-    })
-  ]
-};
-```
+Available at `http://localhost:3001` (default password: `admin_2024`).
 
-### **Monitoring Tools Integration**
+Pre-provisioned datasource connects to Prometheus. Dashboard JSONs are in `grafana/dashboards/`.
 
-```yaml
-# Example Prometheus configuration
-prometheus_config:
-  scrape_configs:
-    - job_name: 'payment-api'
-      static_configs:
-        - targets: ['localhost:3000']
-      metrics_path: '/metrics'
-      scrape_interval: 15s
-      
-    - job_name: 'database'
-      static_configs:
-        - targets: ['localhost:5432']
-      metrics_path: '/metrics'
-      scrape_interval: 30s
-```
+### Suggested Grafana Panels
+
+| Panel | Metric | Type |
+|---|---|---|
+| Request rate | `rate(payment_api_http_requests_total[5m])` | Graph |
+| Request latency (p95) | `histogram_quantile(0.95, rate(payment_api_http_request_duration_seconds_bucket[5m]))` | Graph |
+| Error rate | `rate(payment_api_errors_total[5m])` | Graph |
+| Active requests | `payment_api_http_active_requests` | Gauge |
+| Payment volume | `rate(payment_api_transactions_total[1h])` | Graph |
+| Webhook delivery success rate | `rate(payment_api_webhook_deliveries_total{status="succeeded"}[5m])` | Graph |
+| DB pool utilisation | `payment_api_db_pool_total - payment_api_db_pool_idle` | Gauge |
+| Subscription count | `payment_api_subscriptions_active` | Single stat |
+| Tracing success rate | `payment_api_tracing_success_rate_5m` | Gauge |
 
 ---
 
-**🎯 This comprehensive observability strategy ensures complete visibility into your payment processing system, enabling proactive monitoring, quick troubleshooting, and regulatory compliance.**
+*Last updated: February 16, 2026*

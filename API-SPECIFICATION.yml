@@ -15,7 +15,8 @@ info:
     - **Compliance**: PCI DSS, GDPR, SOX compliant design
     
     ## Authentication
-    All endpoints require API key authentication via `X-API-Key` header.
+    Protected endpoints require a JWT Bearer token obtained from `/api/auth/login`.
+    Public endpoints: `/health`, `/metrics`, `/api/auth/register`, `/api/auth/login`.
     
     ## Rate Limiting  
     - Standard endpoints: 1000 requests/hour
@@ -42,9 +43,156 @@ servers:
     description: Development server
 
 security:
-  - ApiKeyAuth: []
+  - BearerAuth: []
 
 paths:
+  # Authentication
+  /api/auth/register:
+    post:
+      tags: [Authentication]
+      summary: Register a new user
+      description: Create a new user account with email, password, and role
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                email:
+                  type: string
+                  format: email
+                  example: 'admin@example.com'
+                password:
+                  type: string
+                  minLength: 8
+                  example: 'P@ssw0rd123'
+                firstName:
+                  type: string
+                  example: 'John'
+                lastName:
+                  type: string
+                  example: 'Doe'
+                role:
+                  type: string
+                  enum: [admin, user]
+                  default: user
+              required: [email, password, firstName, lastName]
+      responses:
+        '201':
+          description: User registered successfully
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                  message:
+                    type: string
+                  data:
+                    type: object
+                    properties:
+                      userId:
+                        type: string
+                        format: uuid
+                      email:
+                        type: string
+                      accessToken:
+                        type: string
+                      refreshToken:
+                        type: string
+        '400':
+          $ref: '#/components/responses/BadRequest'
+
+  /api/auth/login:
+    post:
+      tags: [Authentication]
+      summary: Login
+      description: Authenticate with email and password to receive JWT tokens
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                email:
+                  type: string
+                  format: email
+                password:
+                  type: string
+              required: [email, password]
+      responses:
+        '200':
+          description: Login successful
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                  data:
+                    type: object
+                    properties:
+                      accessToken:
+                        type: string
+                      refreshToken:
+                        type: string
+                      expiresIn:
+                        type: integer
+        '401':
+          description: Invalid credentials
+
+  /api/auth/profile:
+    get:
+      tags: [Authentication]
+      summary: Get current user profile
+      description: Returns the authenticated user's profile information
+      responses:
+        '200':
+          description: User profile retrieved successfully
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                  data:
+                    type: object
+                    properties:
+                      id:
+                        type: string
+                        format: uuid
+                      email:
+                        type: string
+                      role:
+                        type: string
+
+  /api/auth/refresh:
+    post:
+      tags: [Authentication]
+      summary: Refresh access token
+      description: Exchange a refresh token for a new access token
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                refreshToken:
+                  type: string
+              required: [refreshToken]
+      responses:
+        '200':
+          description: Token refreshed successfully
+
   # Health Check
   /health:
     get:
@@ -502,7 +650,7 @@ paths:
       summary: Database health check
       description: Check database connectivity and performance
       security:
-        - ApiKeyAuth: [admin]
+        - BearerAuth: [admin]
       responses:
         '200':
           description: Database is healthy
@@ -517,7 +665,7 @@ paths:
       summary: Migration status
       description: Get database migration status
       security:
-        - ApiKeyAuth: [admin]
+        - BearerAuth: [admin]
       responses:
         '200':
           description: Migration status retrieved successfully
@@ -532,7 +680,7 @@ paths:
       summary: Database statistics
       description: Get database performance and usage statistics
       security:
-        - ApiKeyAuth: [admin]
+        - BearerAuth: [admin]
       responses:
         '200':
           description: Database statistics retrieved successfully
@@ -665,7 +813,7 @@ paths:
       summary: Queue system health
       description: Check queue system health and status
       security:
-        - ApiKeyAuth: [admin]
+        - BearerAuth: [admin]
       responses:
         '200':
           description: Queue system is healthy
@@ -680,7 +828,7 @@ paths:
       summary: Queue statistics
       description: Get queue processing statistics
       security:
-        - ApiKeyAuth: [admin]
+        - BearerAuth: [admin]
       responses:
         '200':
           description: Queue statistics retrieved successfully
@@ -695,7 +843,7 @@ paths:
       summary: Queue system information
       description: Get queue system configuration and status
       security:
-        - ApiKeyAuth: [admin]
+        - BearerAuth: [admin]
       responses:
         '200':
           description: Queue information retrieved successfully
@@ -710,7 +858,7 @@ paths:
       summary: Pause queue processing
       description: Temporarily pause job processing
       security:
-        - ApiKeyAuth: [admin]
+        - BearerAuth: [admin]
       requestBody:
         required: true
         content:
@@ -731,7 +879,7 @@ paths:
       summary: Resume queue processing
       description: Resume paused job processing
       security:
-        - ApiKeyAuth: [admin]
+        - BearerAuth: [admin]
       requestBody:
         required: true
         content:
@@ -752,7 +900,7 @@ paths:
       summary: Clear queue jobs
       description: Remove all jobs from specified queue
       security:
-        - ApiKeyAuth: [admin]
+        - BearerAuth: [admin]
       parameters:
         - name: queueName
           in: query
@@ -771,7 +919,7 @@ paths:
       summary: Tracing statistics
       description: Get distributed tracing metrics and performance data
       security:
-        - ApiKeyAuth: [admin]
+        - BearerAuth: [admin]
       responses:
         '200':
           description: Tracing statistics retrieved successfully
@@ -786,7 +934,7 @@ paths:
       summary: Active requests
       description: Get currently active traced requests
       security:
-        - ApiKeyAuth: [admin]
+        - BearerAuth: [admin]
       responses:
         '200':
           description: Active requests retrieved successfully
@@ -797,10 +945,11 @@ paths:
 
 components:
   securitySchemes:
-    ApiKeyAuth:
-      type: apiKey
-      in: header
-      name: X-API-Key
+    BearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+      description: JWT access token obtained from POST /api/auth/login
 
   headers:
     CorrelationID:
@@ -1925,6 +2074,8 @@ components:
           type: boolean
 
 tags:
+  - name: Authentication
+    description: User registration, login, and JWT token management
   - name: System
     description: System health and status endpoints
   - name: Payments
