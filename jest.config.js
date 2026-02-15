@@ -22,7 +22,7 @@ module.exports = {
       },
     }],
   },
-  setupFilesAfterSetup: ['<rootDir>/tests/setup.ts'],
+  setupFiles: ['<rootDir>/tests/setup.ts'],
   collectCoverage: false,
   coverageDirectory: 'coverage',
   coverageReporters: ['text', 'text-summary', 'lcov', 'clover'],
@@ -32,7 +32,7 @@ module.exports = {
     '!src/**/*.d.ts',
     '!src/**/index.ts',
   ],
-  coverageThresholds: {
+  coverageThreshold: {
     global: {
       branches: 50,
       functions: 50,
