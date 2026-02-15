@@ -127,7 +127,7 @@ export const validLoginBody = {
  */
 export const validWebhookEndpoint = {
   url: 'https://example.com/webhook',
-  events: ['payment.succeeded', 'payment.failed'],
+  enabledEvents: ['payment.succeeded', 'payment.failed'],
   description: 'Test webhook endpoint',
 };
 
