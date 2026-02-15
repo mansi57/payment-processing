@@ -4,7 +4,7 @@
  */
 
 import { v4 as uuidv4 } from 'uuid';
-import crypto from 'crypto';
+import * as crypto from 'crypto';
 import axios, { AxiosResponse } from 'axios';
 import storageService from './storageService';
 import {

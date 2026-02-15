@@ -201,6 +201,15 @@ export interface EventData {
     id: string;
     email: string;
     name?: string;
+    address?: {
+      street?: string;
+      city?: string;
+      state?: string;
+      postalCode?: string;
+      country?: string;
+    };
+    createdAt?: Date;
+    updatedAt?: Date;
     metadata?: Record<string, any>;
   };
 
@@ -211,6 +220,65 @@ export interface EventData {
     amount: number;
     interval: string;
     metadata?: Record<string, any>;
+  };
+
+  // Order Event Data
+  order?: {
+    id: string;
+    customerId: string;
+    amount: number;
+    currency: string;
+    status: string;
+    description?: string;
+    correlationId?: string;
+    createdAt?: Date;
+    updatedAt?: Date;
+    metadata?: Record<string, any>;
+  };
+
+  // Transaction Event Data
+  transaction?: {
+    id: string;
+    orderId: string;
+    transactionId: string;
+    amount: number;
+    currency?: string;
+    status: string;
+    type: string;
+    paymentMethod?: any;
+    authCode?: string;
+    processorResponse?: string | Record<string, any>;
+    createdAt?: Date;
+    updatedAt?: Date;
+    metadata?: Record<string, any>;
+  };
+
+  // Refund Event Data
+  refund?: {
+    id: string;
+    transactionId: string;
+    amount: number;
+    currency?: string;
+    reason?: string;
+    status: string;
+    createdAt?: Date;
+    metadata?: Record<string, any>;
+  };
+
+  // Previous data for update events
+  previousData?: Record<string, any>;
+  
+  // List of changed fields for update events
+  changes?: string[];
+
+  // Original transaction for refund events
+  originalTransaction?: {
+    id: string;
+    transactionId: string;
+    amount: number;
+    currency?: string;
+    status: string;
+    type: string;
   };
 }
 

@@ -224,7 +224,6 @@ export class AuthorizeNetService {
       const transactionRequestType = new AuthorizeNet.APIContracts.TransactionRequestType();
       transactionRequestType.setTransactionType('authCaptureTransaction');
       transactionRequestType.setAmount(paymentData.amount);
-      transactionRequestType.setMerchantDescriptor(paymentData.description || 'Payment Processing');
 
       // Set payment method
       const payment = new AuthorizeNet.APIContracts.PaymentType();
@@ -243,12 +242,12 @@ export class AuthorizeNetService {
       }
 
       // Set order information
+      const order = new AuthorizeNet.APIContracts.OrderType();
       if (paymentData.orderId) {
-        const order = new AuthorizeNet.APIContracts.OrderType();
         order.setInvoiceNumber(paymentData.orderId);
-        order.setDescription(paymentData.description || 'Payment');
-        transactionRequestType.setOrder(order);
       }
+      order.setDescription((paymentData.description || 'Payment').substring(0, 255));
+      transactionRequestType.setOrder(order);
 
       const createRequest = this.createTransactionRequest();
       createRequest.setTransactionRequest(transactionRequestType);
@@ -358,7 +357,6 @@ export class AuthorizeNetService {
       const transactionRequestType = new AuthorizeNet.APIContracts.TransactionRequestType();
       transactionRequestType.setTransactionType('authOnlyTransaction');
       transactionRequestType.setAmount(authData.amount);
-      transactionRequestType.setMerchantDescriptor(authData.description || 'Payment Authorization');
 
       // Set payment method
       const payment = new AuthorizeNet.APIContracts.PaymentType();

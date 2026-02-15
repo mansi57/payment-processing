@@ -8,6 +8,7 @@ import { correlationIdMiddleware, getTracingStats } from './middleware/correlati
 import { errorHandler, notFoundHandler } from './middleware/errorHandler';
 import { databaseService } from './services/databaseService';
 import { authenticateJWT } from './middleware/auth';
+import { metricsMiddleware, metricsHandler } from './services/metricsService';
 // Route imports
 import authRoutes from './routes/auth';
 import paymentRoutes from './routes/payments';
@@ -15,7 +16,7 @@ import subscriptionRoutes from './routes/subscriptions';
 import webhookRoutes from './routes/webhooks';
 import tracingRoutes from './routes/tracing';
 import databaseRoutes from './routes/database';
-import queueRoutes from './routes/queues-simple';
+import queueRoutes from './routes/queues';
 
 const app = express();
 
@@ -54,6 +55,12 @@ app.use(cors({
 // Request parsing middleware
 app.use(express.json({ limit: '10mb' }));
 app.use(express.urlencoded({ extended: true, limit: '10mb' }));
+
+// Prometheus metrics middleware (before routes, after parsing)
+app.use(metricsMiddleware);
+
+// Prometheus metrics endpoint (public, no auth required)
+app.get('/metrics', metricsHandler);
 
 // Correlation ID middleware for distributed tracing
 app.use(correlationIdMiddleware);

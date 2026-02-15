@@ -3,7 +3,7 @@
  * Extends Winston logger with correlation ID and service call tracing
  */
 
-import winston from 'winston';
+import * as winston from 'winston';
 import { Request } from 'express';
 import { LogContext, ServiceCall } from '../types/tracing.types';
 
