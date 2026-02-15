@@ -18,7 +18,6 @@ import { customerRepository } from '../repositories/customerRepository';
 import { orderRepository } from '../repositories/orderRepository';
 import { transactionRepository } from '../repositories/transactionRepository';
 import { refundRepository } from '../repositories/refundRepository';
-import { eventEmitter } from './eventEmitter';
 import { WebhookService } from './webhookService';
 import {
   CreateCustomerDto,
@@ -330,17 +329,6 @@ export class AuthorizeNetService {
                     error: err instanceof Error ? err.message : 'Unknown error',
                   });
                 });
-                // Emit to Bull queue for async processing (notifications, etc.)
-                eventEmitter.emitPaymentSucceeded({
-                  transactionId: paymentResponse.transactionId,
-                  amount: paymentData.amount,
-                  currency: paymentData.currency || 'USD',
-                  paymentMethod: this.buildPaymentMethodData(paymentData.paymentMethod),
-                  orderId: persistResult?.orderId,
-                  customerId: persistResult?.customerId,
-                  authCode: paymentResponse.authCode,
-                  responseCode: paymentResponse.responseCode,
-                }, undefined, req).catch(() => {});
               }).catch(() => {});
 
               logger.endServiceCall(callId, true, req, undefined, {
@@ -484,16 +472,6 @@ export class AuthorizeNetService {
                     authCode: authResponse.authCode,
                   },
                 }).catch(() => {});
-                eventEmitter.emitPaymentSucceeded({
-                  transactionId: authResponse.transactionId,
-                  amount: authData.amount,
-                  currency: authData.currency || 'USD',
-                  paymentMethod: this.buildPaymentMethodData(authData.paymentMethod),
-                  orderId: persistResult?.orderId,
-                  customerId: persistResult?.customerId,
-                  authCode: authResponse.authCode,
-                  responseCode: authResponse.responseCode,
-                }, undefined, req).catch(() => {});
               }).catch(() => {});
 
               logger.endServiceCall(callId, true, req, undefined, {

@@ -15,7 +15,6 @@ export interface QueueConfig {
     db: number;
     maxRetriesPerRequest: number;
     retryDelayOnFailover?: number;
-    lazyConnect: boolean;
   };
   defaultJobOptions: JobOptions;
   queueOptions: QueueOptions;
@@ -31,7 +30,6 @@ export const queueConfig: QueueConfig = {
     password: process.env.REDIS_PASSWORD,
     db: parseInt(process.env.REDIS_DB || '0', 10),
     maxRetriesPerRequest: 3,
-    lazyConnect: true, // Don't connect immediately
   },
   
   defaultJobOptions: {
@@ -52,7 +50,6 @@ export const queueConfig: QueueConfig = {
       password: process.env.REDIS_PASSWORD,
       db: parseInt(process.env.REDIS_DB || '0', 10),
       maxRetriesPerRequest: 3,
-      lazyConnect: true,
     },
     defaultJobOptions: {
       removeOnComplete: 100,
@@ -80,7 +77,6 @@ export const createRedisConnection = (): Redis => {
     password: queueConfig.redis.password,
     db: queueConfig.redis.db,
     maxRetriesPerRequest: queueConfig.redis.maxRetriesPerRequest,
-    lazyConnect: queueConfig.redis.lazyConnect,
   });
 
   redisConnection.on('connect', () => {
