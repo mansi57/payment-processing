@@ -7,16 +7,16 @@ import { logger } from './utils/tracingLogger';
 import { correlationIdMiddleware, getTracingStats } from './middleware/correlationId';
 import { errorHandler, notFoundHandler } from './middleware/errorHandler';
 import { databaseService } from './services/databaseService';
-// Idempotency middleware is applied per route where needed
+import { authenticateJWT } from './middleware/auth';
+import { metricsMiddleware, metricsHandler } from './services/metricsService';
+// Route imports
+import authRoutes from './routes/auth';
 import paymentRoutes from './routes/payments';
 import subscriptionRoutes from './routes/subscriptions';
 import webhookRoutes from './routes/webhooks';
 import tracingRoutes from './routes/tracing';
 import databaseRoutes from './routes/database';
-import queueRoutes from './routes/queues-simple';
-// import { eventEmitter } from './services/eventEmitter';
-// import { webhookProcessor } from './services/processors/webhookProcessor';
-// import { databaseEventProcessor } from './services/processors/databaseEventProcessor';
+import queueRoutes from './routes/queues';
 
 const app = express();
 
@@ -55,6 +55,12 @@ app.use(cors({
 // Request parsing middleware
 app.use(express.json({ limit: '10mb' }));
 app.use(express.urlencoded({ extended: true, limit: '10mb' }));
+
+// Prometheus metrics middleware (before routes, after parsing)
+app.use(metricsMiddleware);
+
+// Prometheus metrics endpoint (public, no auth required)
+app.get('/metrics', metricsHandler);
 
 // Correlation ID middleware for distributed tracing
 app.use(correlationIdMiddleware);
@@ -102,6 +108,7 @@ app.get('/health', async (req, res) => {
       version: process.env.npm_package_version || '1.0.0',
       environment: config.nodeEnv,
       services: {
+        authentication: 'operational',
         payments: 'operational',
         subscriptions: 'operational',
         webhooks: 'operational',
@@ -111,6 +118,7 @@ app.get('/health', async (req, res) => {
         queues: queuesReady ? 'operational' : 'initializing'
       },
       features: {
+        jwt_authentication: true,
         payment_processing: true,
         recurring_billing: true,
         webhook_delivery: true,
@@ -158,6 +166,7 @@ app.get('/health', async (req, res) => {
       version: process.env.npm_package_version || '1.0.0',
       environment: config.nodeEnv,
       services: {
+        authentication: 'degraded',
         payments: 'degraded',
         subscriptions: 'degraded',
         webhooks: 'degraded',
@@ -173,13 +182,28 @@ app.get('/health', async (req, res) => {
   }
 });
 
-// API routes
-app.use('/api/payments', paymentRoutes);
-app.use('/api/subscriptions', subscriptionRoutes);
+// ============= PUBLIC ROUTES (No JWT required) =============
+// Auth routes - register/login are public
+app.use('/api/auth', authRoutes);
+
+// Webhook receiver must be public (called by external services)
 app.use('/api/webhooks', webhookRoutes);
-app.use('/api/tracing', tracingRoutes);
-app.use('/api/database', databaseRoutes);
-app.use('/api/queues', queueRoutes);
+
+// ============= PROTECTED ROUTES (JWT required) =============
+// Payment routes - protected by JWT
+app.use('/api/payments', authenticateJWT, paymentRoutes);
+
+// Subscription routes - protected by JWT
+app.use('/api/subscriptions', authenticateJWT, subscriptionRoutes);
+
+// Tracing routes - protected by JWT
+app.use('/api/tracing', authenticateJWT, tracingRoutes);
+
+// Database routes - protected by JWT
+app.use('/api/database', authenticateJWT, databaseRoutes);
+
+// Queue routes - protected by JWT
+app.use('/api/queues', authenticateJWT, queueRoutes);
 
 // 404 handler
 app.use(notFoundHandler);

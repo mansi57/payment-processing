@@ -13,12 +13,15 @@ import { AppError } from '../middleware/errorHandler';
 import { customerRepository } from '../repositories/customerRepository';
 import { orderRepository } from '../repositories/orderRepository';
 import { transactionRepository } from '../repositories/transactionRepository';
+import { refundRepository } from '../repositories/refundRepository';
 import {
   CreateCustomerDto,
   CreateOrderDto,
   CreateTransactionDto,
+  CreateRefundDto,
   TransactionType,
   TransactionStatus,
+  RefundStatus,
   PaymentMethodData,
 } from '../types/database.types';
 
@@ -39,18 +42,14 @@ export class MockPaymentService {
   private async findOrCreateCustomer(customerInfo: any, req?: Request): Promise<string> {
     try {
       // Try to find customer by email
-      const existingCustomers = await customerRepository.list(
-        { email: customerInfo.email },
-        { page: 1, limit: 1 },
-        req
-      );
+      const existingCustomer = await customerRepository.findByEmail(customerInfo.email, req);
 
-      if (existingCustomers.data.length > 0) {
+      if (existingCustomer) {
         logger.info('Found existing customer', 'payment', 'findOrCreateCustomer', req, {
-          customerId: existingCustomers.data[0].id,
+          customerId: existingCustomer.id,
           email: customerInfo.email,
         });
-        return existingCustomers.data[0].id;
+        return existingCustomer.id;
       }
 
       // Create new customer
@@ -493,7 +492,7 @@ export class MockPaymentService {
         }
 
         // Update transaction status in database
-        const updatedTransaction = await transactionRepository.update(dbTransaction.id, {
+        await transactionRepository.update(dbTransaction.id, {
           status: TransactionStatus.CAPTURED,
           responseMessage: 'This transaction has been captured.',
           processorResponse: {
@@ -601,32 +600,101 @@ export class MockPaymentService {
 
       await this.simulateDelay();
 
-      const originalTransaction = this.transactions.get(refundData.transactionId);
-      if (!originalTransaction) {
-        logger.endServiceCall(callId, false, req, 'Transaction not found');
-        logger.logPayment('refund', refundData.amount || 0, 'USD', false, req, {
-          error: 'Transaction not found',
+      // 🔥 Look up transaction in database first, fall back to in-memory
+      let dbTransaction: any = null;
+      let originalAmount = 0;
+      let originalAuthCode = '';
+
+      try {
+        dbTransaction = await transactionRepository.findByTransactionId(refundData.transactionId, req);
+
+        if (dbTransaction) {
+          if (![TransactionStatus.SUCCEEDED, TransactionStatus.CAPTURED].includes(dbTransaction.status)) {
+            logger.endServiceCall(callId, false, req, 'Transaction cannot be refunded');
+            logger.logPayment('refund', refundData.amount || 0, 'USD', false, req, {
+              error: 'Transaction cannot be refunded',
+              originalTransactionId: refundData.transactionId,
+              currentStatus: dbTransaction.status,
+              service: 'mock',
+            });
+            throw new AppError('Transaction cannot be refunded', 400, PaymentErrorCodes.REFUND_FAILED);
+          }
+          originalAmount = dbTransaction.amount;
+          originalAuthCode = dbTransaction.authCode || '';
+        }
+      } catch (dbError) {
+        if (dbError instanceof AppError) throw dbError;
+        logger.error('Database error during refund lookup', 'payment', 'refundPayment', req, {
+          error: dbError instanceof Error ? dbError.message : 'Unknown database error',
           originalTransactionId: refundData.transactionId,
-          service: 'mock',
         });
-        throw new AppError('Transaction not found', 404, PaymentErrorCodes.TRANSACTION_NOT_FOUND);
       }
 
-      if (!['completed', 'captured'].includes(originalTransaction.status)) {
-        logger.endServiceCall(callId, false, req, 'Transaction cannot be refunded');
-        logger.logPayment('refund', refundData.amount || 0, 'USD', false, req, {
-          error: 'Transaction cannot be refunded',
-          originalTransactionId: refundData.transactionId,
-          currentStatus: originalTransaction.status,
-          service: 'mock',
-        });
-        throw new AppError('Transaction cannot be refunded', 400, PaymentErrorCodes.REFUND_FAILED);
+      // Fall back to in-memory if DB lookup didn't find transaction
+      if (!dbTransaction) {
+        const originalTransaction = this.transactions.get(refundData.transactionId);
+        if (!originalTransaction) {
+          logger.endServiceCall(callId, false, req, 'Transaction not found');
+          logger.logPayment('refund', refundData.amount || 0, 'USD', false, req, {
+            error: 'Transaction not found',
+            originalTransactionId: refundData.transactionId,
+            service: 'mock',
+          });
+          throw new AppError('Transaction not found', 404, PaymentErrorCodes.TRANSACTION_NOT_FOUND);
+        }
+
+        if (!['completed', 'captured'].includes(originalTransaction.status)) {
+          logger.endServiceCall(callId, false, req, 'Transaction cannot be refunded');
+          logger.logPayment('refund', refundData.amount || 0, 'USD', false, req, {
+            error: 'Transaction cannot be refunded',
+            originalTransactionId: refundData.transactionId,
+            currentStatus: originalTransaction.status,
+            service: 'mock',
+          });
+          throw new AppError('Transaction cannot be refunded', 400, PaymentErrorCodes.REFUND_FAILED);
+        }
+        originalAmount = originalTransaction.amount;
+        originalAuthCode = originalTransaction.authCode || '';
       }
 
-      const refundAmount = refundData.amount || originalTransaction.amount;
+      const refundAmount = refundData.amount || originalAmount;
       const refundTransactionId = this.generateTransactionId();
 
-      // Store refund transaction
+      // 🔥 Persist refund to database (non-blocking)
+      try {
+        if (dbTransaction) {
+          const refundRecord: CreateRefundDto = {
+            transactionId: dbTransaction.id,
+            originalTransactionId: dbTransaction.id,
+            amount: refundAmount,
+            currency: dbTransaction.currency || 'USD',
+            reason: refundData.reason,
+            status: RefundStatus.SUCCEEDED,
+            refundTransactionId,
+            correlationId: req?.tracing?.correlationId,
+            requestId: req?.tracing?.requestId,
+          };
+          await refundRepository.create(refundRecord, req);
+
+          // Update original transaction status
+          await transactionRepository.update(dbTransaction.id, {
+            status: TransactionStatus.REFUNDED,
+          }, req);
+
+          logger.info('Refund persisted to database', 'payment', 'refundPayment', req, {
+            refundTransactionId,
+            originalTransactionId: refundData.transactionId,
+            amount: refundAmount,
+          });
+        }
+      } catch (dbError) {
+        logger.error('Failed to persist refund to database (non-blocking)', 'payment', 'refundPayment', req, {
+          error: dbError instanceof Error ? dbError.message : 'Unknown error',
+          refundTransactionId,
+        });
+      }
+
+      // Store refund transaction in-memory (backward compatibility)
       this.transactions.set(refundTransactionId, {
         type: 'refund',
         amount: refundAmount,
@@ -640,7 +708,7 @@ export class MockPaymentService {
       const response: PaymentResponse = {
         success: true,
         transactionId: refundTransactionId,
-        authCode: originalTransaction.authCode,
+        authCode: originalAuthCode,
         amount: refundAmount,
         message: 'This transaction has been approved.',
         responseCode: '1',
@@ -649,7 +717,7 @@ export class MockPaymentService {
 
       logger.endServiceCall(callId, true, req, undefined, {
         transactionId: refundTransactionId,
-        authCode: originalTransaction.authCode,
+        authCode: originalAuthCode,
         responseCode: '1',
       });
 
@@ -657,7 +725,7 @@ export class MockPaymentService {
         transactionId: refundTransactionId,
         originalTransactionId: refundData.transactionId,
         reason: refundData.reason,
-        authCode: originalTransaction.authCode,
+        authCode: originalAuthCode,
         service: 'mock',
       });
 
@@ -699,37 +767,90 @@ export class MockPaymentService {
 
       await this.simulateDelay();
 
+      // 🔥 Look up transaction in database first, fall back to in-memory
+      let dbTransaction: any = null;
+      let originalAuthCode = '';
+
+      try {
+        dbTransaction = await transactionRepository.findByTransactionId(voidData.transactionId, req);
+
+        if (dbTransaction) {
+          if (![TransactionStatus.AUTHORIZED, TransactionStatus.SUCCEEDED].includes(dbTransaction.status)) {
+            logger.endServiceCall(callId, false, req, 'Transaction cannot be voided');
+            logger.logPayment('void', 0, 'USD', false, req, {
+              error: 'Transaction cannot be voided',
+              originalTransactionId: voidData.transactionId,
+              currentStatus: dbTransaction.status,
+              service: 'mock',
+            });
+            throw new AppError('Transaction cannot be voided', 400, PaymentErrorCodes.VOID_FAILED);
+          }
+          originalAuthCode = dbTransaction.authCode || '';
+        }
+      } catch (dbError) {
+        if (dbError instanceof AppError) throw dbError;
+        logger.error('Database error during void lookup', 'payment', 'voidPayment', req, {
+          error: dbError instanceof Error ? dbError.message : 'Unknown database error',
+          originalTransactionId: voidData.transactionId,
+        });
+      }
+
+      // Fall back to in-memory if DB lookup didn't find transaction
+      if (!dbTransaction) {
+        const originalTransaction = this.transactions.get(voidData.transactionId);
+        if (!originalTransaction) {
+          logger.endServiceCall(callId, false, req, 'Transaction not found');
+          logger.logPayment('void', 0, 'USD', false, req, {
+            error: 'Transaction not found',
+            originalTransactionId: voidData.transactionId,
+            service: 'mock',
+          });
+          throw new AppError('Transaction not found', 404, PaymentErrorCodes.TRANSACTION_NOT_FOUND);
+        }
+
+        if (!['authorized', 'completed'].includes(originalTransaction.status)) {
+          logger.endServiceCall(callId, false, req, 'Transaction cannot be voided');
+          logger.logPayment('void', 0, 'USD', false, req, {
+            error: 'Transaction cannot be voided',
+            originalTransactionId: voidData.transactionId,
+            currentStatus: originalTransaction.status,
+            service: 'mock',
+          });
+          throw new AppError('Transaction cannot be voided', 400, PaymentErrorCodes.VOID_FAILED);
+        }
+        originalAuthCode = originalTransaction.authCode || '';
+      }
+
+      // 🔥 Update transaction status in database (non-blocking)
+      try {
+        if (dbTransaction) {
+          await transactionRepository.update(dbTransaction.id, {
+            status: TransactionStatus.VOIDED,
+          }, req);
+          logger.info('Void persisted to database', 'payment', 'voidPayment', req, {
+            originalTransactionId: voidData.transactionId,
+            reason: voidData.reason,
+          });
+        }
+      } catch (dbError) {
+        logger.error('Failed to persist void to database (non-blocking)', 'payment', 'voidPayment', req, {
+          error: dbError instanceof Error ? dbError.message : 'Unknown error',
+          originalTransactionId: voidData.transactionId,
+        });
+      }
+
+      // Update in-memory transaction (backward compatibility)
       const originalTransaction = this.transactions.get(voidData.transactionId);
-      if (!originalTransaction) {
-        logger.endServiceCall(callId, false, req, 'Transaction not found');
-        logger.logPayment('void', 0, 'USD', false, req, {
-          error: 'Transaction not found',
-          originalTransactionId: voidData.transactionId,
-          service: 'mock',
-        });
-        throw new AppError('Transaction not found', 404, PaymentErrorCodes.TRANSACTION_NOT_FOUND);
+      if (originalTransaction) {
+        originalTransaction.status = 'voided';
+        originalTransaction.voidedAt = new Date();
+        originalTransaction.voidReason = voidData.reason;
       }
-
-      if (!['authorized', 'completed'].includes(originalTransaction.status)) {
-        logger.endServiceCall(callId, false, req, 'Transaction cannot be voided');
-        logger.logPayment('void', 0, 'USD', false, req, {
-          error: 'Transaction cannot be voided',
-          originalTransactionId: voidData.transactionId,
-          currentStatus: originalTransaction.status,
-          service: 'mock',
-        });
-        throw new AppError('Transaction cannot be voided', 400, PaymentErrorCodes.VOID_FAILED);
-      }
-
-      // Update transaction status
-      originalTransaction.status = 'voided';
-      originalTransaction.voidedAt = new Date();
-      originalTransaction.voidReason = voidData.reason;
 
       const response: PaymentResponse = {
         success: true,
         transactionId: voidData.transactionId,
-        authCode: originalTransaction.authCode || '',
+        authCode: originalAuthCode,
         amount: 0,
         message: 'This transaction has been voided.',
         responseCode: '1',
@@ -738,7 +859,7 @@ export class MockPaymentService {
 
       logger.endServiceCall(callId, true, req, undefined, {
         transactionId: voidData.transactionId,
-        authCode: originalTransaction.authCode,
+        authCode: originalAuthCode,
         responseCode: '1',
       });
 
@@ -746,7 +867,7 @@ export class MockPaymentService {
         transactionId: voidData.transactionId,
         originalTransactionId: voidData.transactionId,
         reason: voidData.reason,
-        authCode: originalTransaction.authCode,
+        authCode: originalAuthCode,
         service: 'mock',
       });
 

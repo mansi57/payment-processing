@@ -1,492 +1,378 @@
-# 🚀 Advanced Payment Processing System
+# Payment Processing System
 
-A comprehensive, enterprise-grade payment processing system with queue-based webhook delivery, distributed tracing, and PostgreSQL persistence.
-
-![Version](https://img.shields.io/badge/version-1.0.0-blue.svg)
-![Node](https://img.shields.io/badge/node-%3E%3D16.0.0-brightgreen.svg)
-![TypeScript](https://img.shields.io/badge/TypeScript-4.9%2B-blue.svg)
-![PostgreSQL](https://img.shields.io/badge/PostgreSQL-13%2B-blue.svg)
-
-## 📋 Features
-
-### 💳 Payment Processing
-- **Multi-Gateway Support**: Authorize.Net integration with mock service fallback
-- **Payment Types**: Purchase, authorize, capture, void, refund operations
-- **Recurring Billing**: Automated subscription management and billing cycles
-- **Multi-Currency**: Support for various currencies and payment methods
-
-### 🔄 Queue-Based Architecture
-- **Event-Driven Processing**: Asynchronous webhook delivery with retry logic
-- **5 Specialized Queues**: Webhook delivery, database events, payments, notifications, cleanup
-- **Background Workers**: Concurrent job processing with exponential backoff
-- **Dead Letter Queue**: Failed job recovery and analysis
-
-### 🗄️ Data Persistence
-- **PostgreSQL Database**: Robust data storage with connection pooling
-- **Auto Migrations**: Automated schema versioning and updates
-- **Complete CRUD**: Customer, order, and transaction management
-- **Audit Logging**: Comprehensive audit trails for all operations
-
-### 🔍 Observability
-- **Distributed Tracing**: End-to-end request correlation with unique IDs
-- **Structured Logging**: JSON-formatted logs with correlation context
-- **Performance Monitoring**: Request duration tracking and slow query detection
-- **Health Checks**: Real-time system health monitoring
-
-## 🏗️ Architecture
-
-```
-API Gateway ──▶ Payment Processing App ──▶ Queue System ──▶ Background Workers
-     │                    │                      │                │
-     │                    ▼                      ▼                ▼
-     │              PostgreSQL DB          Redis/Memory      Webhook Delivery
-     │                    │                      │                │
-     └────────────── Distributed Tracing ───────────────────────────┘
-```
-
-## 📋 Prerequisites
-
-- **Node.js**: 16.0.0+
-- **npm**: 8.0.0+
-- **PostgreSQL**: 13.0+
-- **Redis**: 6.0+ (optional, for production queues)
-
-## 🗄️ Database Setup
-
-### 1. Install PostgreSQL
-
-**Windows:**
-```bash
-choco install postgresql
-# Or download from: https://www.postgresql.org/download/windows/
-```
-
-**macOS:**
-```bash
-brew install postgresql
-brew services start postgresql
-```
-
-**Linux:**
-```bash
-sudo apt update
-sudo apt install postgresql postgresql-contrib
-sudo systemctl start postgresql
-```
-
-### 2. Create Database
-
-```sql
--- Connect as postgres user
-psql -U postgres
-
--- Create database
-CREATE DATABASE payment_processing;
-
--- Create user (optional)
-CREATE USER payment_user WITH ENCRYPTED PASSWORD 'secure_password';
-GRANT ALL PRIVILEGES ON DATABASE payment_processing TO payment_user;
-
--- Exit
-\q
-```
-
-### 3. Database Schema
-
-The application automatically creates these tables on first run:
-- `customers` - Customer profiles and information
-- `orders` - Order details and status tracking  
-- `transactions` - Payment transaction records
-- `refunds` - Refund transaction records
-- `audit_logs` - System audit trail
-- `schema_migrations` - Database version control
-
-## 📦 Installation & Setup
-
-### 1. Clone and Install
-```bash
-git clone <repository-url>
-cd payment-processing
-npm install
-```
-
-### 2. Environment Configuration
-
-Create `.env` file:
-```env
-# Application
-NODE_ENV=development
-PORT=3000
-
-# Database
-DB_HOST=localhost
-DB_PORT=5432
-DB_NAME=payment_processing
-DB_USERNAME=postgres
-DB_PASSWORD=your_password
-DB_SSL=false
-DB_MAX_CONNECTIONS=20
-
-# Queue System
-QUEUE_DRIVER=memory  # Use 'redis' for production
-REDIS_HOST=localhost
-REDIS_PORT=6379
-
-# Payment Gateway
-AUTHNET_API_LOGIN_ID=your_api_login_id
-AUTHNET_TRANSACTION_KEY=your_transaction_key
-AUTHNET_ENVIRONMENT=sandbox
-
-# Security
-ALLOWED_ORIGINS=http://localhost:3000,http://localhost:3001
-```
-
-### 3. Build and Start
-
-**Development:**
-```bash
-npm run build
-npm run dev
-```
-
-**Production:**
-```bash
-npm run build
-npm start
-```
-
-## 🚀 Running the Application
-
-### Start Main Application
-```bash
-# Development with hot reload
-npm run dev
-
-# Production
-npm start
-
-# With PM2 (recommended for production)
-npm install -g pm2
-pm2 start ecosystem.config.js
-```
-
-### Verify Status
-```bash
-# Health check
-curl http://localhost:3000/health
-
-# Queue system status
-curl http://localhost:3000/api/queues/health
-
-# Database status
-curl http://localhost:3000/api/database/health
-```
-
-## ⚙️ Background Workers & Queues
-
-### Queue System
-The application uses a sophisticated queue system with these queues:
-
-- **📨 webhook-delivery** - Webhook delivery with retry logic
-- **🗄️ database-events** - Database change events  
-- **💳 payment-events** - Payment processing events
-- **📢 notification-events** - Email, SMS, push notifications
-- **🧹 cleanup-jobs** - Maintenance tasks
-
-### Queue Configuration
-
-**Development (In-Memory):**
-```env
-QUEUE_DRIVER=memory
-```
-
-**Production (Redis):**
-```env
-QUEUE_DRIVER=redis
-REDIS_HOST=localhost
-REDIS_PORT=6379
-REDIS_PASSWORD=your_password
-```
-
-### Queue Monitoring
-
-```bash
-# Queue health
-curl http://localhost:3000/api/queues/health
-
-# Queue statistics
-curl http://localhost:3000/api/queues/stats
-
-# System information
-curl http://localhost:3000/api/queues/info
-```
-
-### Queue Management
-
-```bash
-# Pause queue
-curl -X POST http://localhost:3000/api/queues/webhook-delivery/pause
-
-# Resume queue  
-curl -X POST http://localhost:3000/api/queues/webhook-delivery/resume
-
-# Clear queue
-curl -X DELETE http://localhost:3000/api/queues/webhook-delivery/clear
-```
-
-## 📚 API Documentation
-
-### Base URL
-```
-Development: http://localhost:3000
-Production: https://api.yourcompany.com
-```
-
-### Core Endpoints
-
-#### Health & Monitoring
-```http
-GET  /health                    # Application health status
-GET  /api/queues/health        # Queue system health
-GET  /api/database/health      # Database health
-GET  /api/tracing/stats        # Distributed tracing stats
-```
-
-#### Payment Processing
-```http
-POST /api/payments/purchase     # Process payment
-POST /api/payments/authorize    # Authorize payment
-POST /api/payments/capture      # Capture payment
-POST /api/payments/void         # Void payment
-POST /api/payments/refund       # Refund payment
-```
-
-#### Database Operations
-```http
-# Customers
-POST /api/database/customers    # Create customer
-GET  /api/database/customers    # List customers
-GET  /api/database/customers/:id # Get customer
-
-# Orders  
-POST /api/database/orders       # Create order
-GET  /api/database/orders       # List orders
-GET  /api/database/orders/:id   # Get order
-
-# Transactions
-POST /api/database/transactions # Create transaction
-GET  /api/database/transactions # List transactions
-GET  /api/database/transactions/:id # Get transaction
-```
-
-#### Webhook Management
-```http
-POST /api/webhooks/endpoints    # Create webhook endpoint
-GET  /api/webhooks/endpoints    # List endpoints
-PUT  /api/webhooks/endpoints/:id # Update endpoint
-DELETE /api/webhooks/endpoints/:id # Delete endpoint
-```
-
-### Request Headers
-```http
-Content-Type: application/json
-X-Correlation-ID: unique-request-id
-X-Source: your-application-name
-Idempotency-Key: unique-operation-key (for payments)
-```
-
-### Response Format
-```json
-{
-  "success": true,
-  "data": {},
-  "correlationId": "req_123456",
-  "timestamp": "2025-09-20T10:30:00Z"
-}
-```
-
-## 🧪 Testing
-
-### Postman Collection
-Import the included Postman collection:
-```
-postman/Advanced-Payment-Processing-API.postman_collection.json
-postman/Advanced-Payment-API-Environment.postman_environment.json
-```
-
-Features:
-- 90+ pre-configured requests
-- Automated variable management  
-- Complete workflow testing
-- Environment configurations
-
-### Running Tests
-```bash
-# Unit tests
-npm test
-
-# Integration tests
-npm run test:integration
-
-# End-to-end tests
-npm run test:e2e
-```
-
-## 📊 Monitoring & Debugging
-
-### Application Logs
-```bash
-# View logs
-tail -f logs/app.log
-
-# View error logs  
-tail -f logs/error.log
-
-# Search by correlation ID
-grep "correlation-id" logs/app.log
-```
-
-### Performance Monitoring
-```bash
-# Tracing statistics
-curl http://localhost:3000/api/tracing/stats
-
-# Queue performance
-curl http://localhost:3000/api/queues/stats
-
-# Database statistics  
-curl http://localhost:3000/api/database/statistics
-```
-
-### Debug Mode
-```env
-LOG_LEVEL=debug
-NODE_ENV=development
-```
-
-## 🚀 Production Deployment
-
-### Server Setup
-```bash
-# Install dependencies
-curl -fsSL https://deb.nodesource.com/setup_18.x | sudo -E bash -
-sudo apt-get install -y nodejs postgresql redis-server
-
-# Install PM2
-npm install -g pm2
-```
-
-### Application Deployment
-```bash
-# Clone and build
-git clone <repository-url>
-cd payment-processing
-npm ci --only=production
-npm run build
-
-# Configure environment
-cp .env.example .env
-# Edit .env with production values
-
-# Start with PM2
-pm2 start ecosystem.config.js --env production
-```
-
-### Environment Variables (Production)
-```env
-NODE_ENV=production
-QUEUE_DRIVER=redis
-DB_SSL=true
-LOG_LEVEL=info
-AUTHNET_ENVIRONMENT=production
-```
-
-## 🔧 Troubleshooting
-
-### Common Issues
-
-**Database Connection:**
-```bash
-# Check PostgreSQL
-sudo systemctl status postgresql
-psql -U postgres -h localhost -d payment_processing
-
-# Check connection health
-curl http://localhost:3000/api/database/health
-```
-
-**Queue Processing:**
-```bash
-# Check Redis (if using)
-redis-cli ping
-
-# Check queue health
-curl http://localhost:3000/api/queues/health
-```
-
-**Application Startup:**
-```bash
-# Check build
-npm run build
-
-# Check logs
-tail -f logs/error.log
-
-# Verify environment
-node -e "console.log(process.env.NODE_ENV)"
-```
-
-### Performance Issues
-
-**Slow Queries:**
-```sql
--- Enable query logging
-ALTER SYSTEM SET log_statement = 'all';
-SELECT pg_reload_conf();
-```
-
-**Memory Issues:**
-```bash
-# Monitor with PM2
-pm2 monit
-
-# Check Node.js memory
-node --inspect dist/index.js
-```
-
-## 🛠️ Development
-
-### Project Structure
-```
-src/
-├── config/         # Configuration files
-├── middleware/     # Express middleware  
-├── routes/         # API routes
-├── services/       # Business logic
-├── types/          # TypeScript types
-├── utils/          # Utility functions
-└── app.ts         # Express app setup
-```
-
-### Development Commands
-```bash
-npm run dev         # Start with hot reload
-npm run build:watch # Build with watch mode
-npm run lint        # Lint code
-npm run format      # Format code
-npm test           # Run tests
-```
-
-## 📄 License
-
-MIT License - see [LICENSE](LICENSE) file for details.
-
-## 📞 Support
-
-- **Issues**: GitHub Issues
-- **Documentation**: See `/docs` directory
-- **Email**: support@yourcompany.com
+A backend payment processing application built with **Node.js**, **TypeScript**, and **Express**, integrated with the **Authorize.Net** payment gateway. The system features Redis-backed **Bull queues** for asynchronous webhook delivery, **PostgreSQL** persistence, distributed tracing, and Prometheus metrics — all orchestrated via **Docker Compose**.
 
 ---
 
-**🎉 Your scalable payment processing system is ready for enterprise-level transactions!**
+## Table of Contents
+
+1. [Features](#features)
+2. [Tech Stack](#tech-stack)
+3. [Prerequisites](#prerequisites)
+4. [Project Setup](#project-setup)
+5. [Database Setup](#database-setup)
+6. [Running the Application](#running-the-application)
+7. [Running Background Workers](#running-background-workers)
+8. [Environment Variables](#environment-variables)
+9. [Verifying the Setup](#verifying-the-setup)
+10. [Docker Commands Reference](#docker-commands-reference)
+11. [Troubleshooting](#troubleshooting)
+12. [Related Documentation](#related-documentation)
+
+---
+
+## Features
+
+| Area | Details |
+|---|---|
+| **Payment Processing** | Purchase, authorize, capture, void, and refund via Authorize.Net (sandbox & production) with mock service fallback |
+| **Recurring Billing** | Subscription management with automated billing cycles, dunning, pause/resume |
+| **Webhook Delivery** | Asynchronous, queue-based delivery with HMAC-SHA256 signing, exponential-backoff retries, and dead-letter handling |
+| **Queue System** | 5 Bull queues (webhook-delivery, database-events, payment-events, notification-events, cleanup-jobs) backed by Redis |
+| **Database** | PostgreSQL with auto-migrations, audit-log triggers, JSONB metadata, indexed queries |
+| **Observability** | Prometheus metrics (`/metrics`), structured JSON logging, distributed tracing with correlation IDs |
+| **Security** | JWT authentication, Helmet security headers, CORS, rate limiting, idempotency keys |
+
+---
+
+## Tech Stack
+
+| Component | Technology |
+|---|---|
+| Runtime | Node.js 18+ |
+| Language | TypeScript 5.2+ |
+| Framework | Express 4 |
+| Database | PostgreSQL 15 |
+| Queue Backend | Redis 7 + Bull 4 |
+| Payment Gateway | Authorize.Net SDK |
+| Metrics | prom-client (Prometheus) |
+| Logging | Winston |
+| Containerisation | Docker & Docker Compose |
+
+---
+
+## Prerequisites
+
+- **Docker Desktop** (v4+) — includes Docker Engine and Docker Compose
+- **Node.js 18+** and **npm 8+** (only needed if running outside Docker)
+- **Git**
+
+> All other dependencies (PostgreSQL, Redis) are provided by the Docker Compose stack.
+
+---
+
+## Project Setup
+
+### 1. Clone the repository
+
+```bash
+git clone <repository-url>
+cd payment-processing
+```
+
+### 2. Install dependencies (for local IDE support / linting)
+
+```bash
+npm install
+```
+
+### 3. Create the `.env` file
+
+Copy the template below into a file named `.env` at the project root:
+
+```env
+# ── Authorize.Net Sandbox Credentials ──
+AUTHNET_API_LOGIN_ID=<your_api_login_id>
+AUTHNET_TRANSACTION_KEY=<your_transaction_key>
+AUTHNET_ENVIRONMENT=sandbox
+USE_MOCK_PAYMENT_SERVICE=false
+
+# ── Security ──
+JWT_SECRET=your_jwt_secret_key
+
+# ── Database ──
+DB_HOST=postgres
+DB_PORT=5432
+DB_NAME=payment_processing
+DB_USERNAME=postgres
+DB_PASSWORD=payment_secure_2024
+
+# ── Redis ──
+REDIS_HOST=redis
+REDIS_PORT=6379
+REDIS_PASSWORD=redis_secure_2024
+
+# ── Queue ──
+QUEUE_DRIVER=redis
+```
+
+> Set `USE_MOCK_PAYMENT_SERVICE=true` if you do not have Authorize.Net sandbox credentials and want to use the built-in mock payment service.
+
+---
+
+## Database Setup
+
+### Automatic (Docker — recommended)
+
+The Docker Compose stack provisions PostgreSQL automatically. On first start the `init-db/` scripts and the application's migration service create all required tables, indexes, triggers, and views.
+
+Tables created by the migration (`src/migrations/001_initial_schema.sql`):
+
+| Table | Purpose |
+|---|---|
+| `customers` | Customer profiles (email, name, address, metadata) |
+| `orders` | Order records linked to customers |
+| `transactions` | Payment transactions linked to orders |
+| `refunds` | Refund records linked to transactions |
+| `audit_logs` | Immutable audit trail for all entity changes |
+| `schema_migrations` | Tracks applied migration versions |
+| `users` | JWT-authenticated user accounts (migration 002) |
+
+Views: `transaction_summary`, `order_summary`, `database_stats`.
+
+### Manual (standalone PostgreSQL)
+
+If running PostgreSQL outside Docker:
+
+```bash
+# Connect as postgres superuser
+psql -U postgres
+
+# Create the database
+CREATE DATABASE payment_processing;
+\q
+
+# The application auto-runs migrations on startup — no manual SQL needed.
+```
+
+---
+
+## Running the Application
+
+### Option A — Docker Compose (recommended)
+
+This starts **all four core services** (PostgreSQL, Redis, API, Queue Worker):
+
+```bash
+# Build and start in detached mode
+docker compose up -d --build
+
+# Follow logs
+docker compose logs -f
+```
+
+| Container | Role | Port |
+|---|---|---|
+| `payment_processing_api` | Express API server + queue producer | `3000` |
+| `payment_processing_queue_worker` | Bull queue consumer (background jobs) | — |
+| `payment_processing_db` | PostgreSQL 15 | `5432` |
+| `payment_processing_redis` | Redis 7 | `6379` |
+
+### Option B — Local development (without Docker)
+
+Ensure PostgreSQL and Redis are running locally, then:
+
+```bash
+# Build TypeScript
+npm run build
+
+# Start the API server (also initialises queues)
+npm start
+
+# Or, with hot-reload during development:
+npm run dev
+```
+
+---
+
+## Running Background Workers
+
+### How it works
+
+The application uses a **producer–consumer** split:
+
+- **Producer** (`payment_processing_api`) — receives HTTP requests, processes payments, and enqueues jobs into Bull queues via Redis.
+- **Consumer** (`payment_processing_queue_worker`) — a dedicated Node.js process that connects to the same Redis instance, picks up jobs, and executes processors (webhook delivery, database-event handling, payment-event processing, notifications, cleanup).
+
+### Starting the queue worker
+
+#### Docker (already included)
+
+The `queue-worker` service in `docker-compose.yml` starts automatically:
+
+```yaml
+queue-worker:
+  command: ["node", "dist/workers/queue-worker.js"]
+  depends_on:
+    postgres: { condition: service_healthy }
+    redis:    { condition: service_healthy }
+```
+
+#### Standalone
+
+```bash
+npm run build
+node dist/workers/queue-worker.js
+```
+
+### Queue worker startup log (expected output)
+
+```
+Queue manager initialized successfully {
+  queues: ["webhook-delivery","database-events","payment-events","notification-events","cleanup-jobs"],
+  redisConnected: true,
+  mode: "redis"
+}
+Queue processors setup completed
+Queue worker started successfully
+```
+
+---
+
+## Environment Variables
+
+| Variable | Required | Default | Description |
+|---|---|---|---|
+| `AUTHNET_API_LOGIN_ID` | Yes* | `5Tav93DC` | Authorize.Net API login ID |
+| `AUTHNET_TRANSACTION_KEY` | Yes* | `9z8hUZ9N8ra6PJ4k` | Authorize.Net transaction key |
+| `AUTHNET_ENVIRONMENT` | No | `sandbox` | `sandbox` or `production` |
+| `USE_MOCK_PAYMENT_SERVICE` | No | `false` | `true` to bypass Authorize.Net |
+| `JWT_SECRET` | Yes | `jwt_secret_key_2024` | Secret for JWT signing |
+| `DB_HOST` | No | `postgres` | PostgreSQL hostname |
+| `DB_PORT` | No | `5432` | PostgreSQL port |
+| `DB_NAME` | No | `payment_processing` | Database name |
+| `DB_USERNAME` | No | `postgres` | Database user |
+| `DB_PASSWORD` | Yes | `payment_secure_2024` | Database password |
+| `REDIS_HOST` | No | `redis` | Redis hostname |
+| `REDIS_PORT` | No | `6379` | Redis port |
+| `REDIS_PASSWORD` | Yes | `redis_secure_2024` | Redis password |
+| `QUEUE_DRIVER` | No | `redis` | `redis` or `memory` |
+| `PORT` | No | `3000` | API server port |
+| `NODE_ENV` | No | `development` | `development` / `production` |
+| `LOG_LEVEL` | No | `info` | `error`, `warn`, `info`, `debug` |
+| `ENABLE_METRICS` | No | `true` | Enable Prometheus `/metrics` |
+| `ENABLE_TRACING` | No | `true` | Enable distributed tracing |
+
+\* Not required if `USE_MOCK_PAYMENT_SERVICE=true`.
+
+---
+
+## Verifying the Setup
+
+After `docker compose up -d --build`, run these checks:
+
+```bash
+# 1. Container health
+docker ps
+
+# 2. Application health
+curl http://localhost:3000/health
+
+# 3. Database health
+curl http://localhost:3000/api/database/health
+
+# 4. Queue health (requires JWT auth)
+curl http://localhost:3000/api/queues/health \
+  -H "Authorization: Bearer <your_jwt_token>"
+
+# 5. Queue statistics
+curl http://localhost:3000/api/queues/stats \
+  -H "Authorization: Bearer <your_jwt_token>"
+
+# 6. Prometheus metrics
+curl http://localhost:3000/metrics
+```
+
+### Obtaining a JWT token
+
+```bash
+# Register a user
+curl -X POST http://localhost:3000/api/auth/register \
+  -H "Content-Type: application/json" \
+  -d '{"email":"admin@example.com","password":"P@ssw0rd123","role":"admin"}'
+
+# Login to get a token
+curl -X POST http://localhost:3000/api/auth/login \
+  -H "Content-Type: application/json" \
+  -d '{"email":"admin@example.com","password":"P@ssw0rd123"}'
+```
+
+---
+
+## Docker Commands Reference
+
+```bash
+# Build and start all services
+docker compose up -d --build
+
+# View logs for all containers
+docker compose logs -f
+
+# View logs for a specific service
+docker logs payment_processing_api --tail 50 -f
+docker logs payment_processing_queue_worker --tail 50 -f
+
+# Rebuild a single service
+docker compose up -d --build payment-api
+
+# Stop all services (keep data)
+docker compose down
+
+# Stop and remove volumes (fresh start)
+docker compose down -v
+
+# Start optional monitoring stack (Prometheus + Grafana)
+docker compose --profile monitoring up -d
+```
+
+---
+
+## Troubleshooting
+
+### Database connection errors
+
+```bash
+# Check PostgreSQL is healthy
+docker logs payment_processing_db --tail 20
+
+# If password mismatch after changing .env, reset volumes
+docker compose down -v
+docker compose up -d --build
+```
+
+### Queue worker not processing jobs
+
+```bash
+# Verify Redis connectivity
+docker exec payment_processing_redis redis-cli -a redis_secure_2024 ping
+
+# Check queue worker logs
+docker logs payment_processing_queue_worker --tail 30
+
+# Verify queue health via API
+curl http://localhost:3000/api/queues/health -H "Authorization: Bearer <token>"
+```
+
+### TypeScript build errors
+
+```bash
+# Rebuild from scratch
+npm run clean
+npm run build
+```
+
+---
+
+## Related Documentation
+
+| File | Description |
+|---|---|
+| [`PROJECT_STRUCTURE.md`](PROJECT_STRUCTURE.md) | Folder layout and key module descriptions |
+| [`ARCHITECTURE.md`](ARCHITECTURE.md) | API endpoints, flows, DB schema, design trade-offs, compliance |
+| [`OBSERVABILITY.md`](OBSERVABILITY.md) | Metrics catalogue, tracing strategy, logging strategy |
+| [`API-SPECIFICATION.yml`](API-SPECIFICATION.yml) | OpenAPI 3.0 specification for all endpoints |
+| [`QUEUE_ARCHITECTURE.md`](QUEUE_ARCHITECTURE.md) | Deep-dive into the Bull queue system |
+
+---
+
+*Last updated: February 16, 2026*

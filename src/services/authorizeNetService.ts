@@ -1,3 +1,4 @@
+import '../utils/patchAuthorizeNet';
 import * as AuthorizeNet from 'authorizenet';
 import { v4 as uuidv4 } from 'uuid';
 import { Request } from 'express';
@@ -13,11 +14,29 @@ import {
   PaymentErrorCodes,
 } from '../types/payment.types';
 import { AppError } from '../middleware/errorHandler';
+import { customerRepository } from '../repositories/customerRepository';
+import { orderRepository } from '../repositories/orderRepository';
+import { transactionRepository } from '../repositories/transactionRepository';
+import { refundRepository } from '../repositories/refundRepository';
+import { WebhookService } from './webhookService';
+import {
+  CreateCustomerDto,
+  CreateOrderDto,
+  CreateTransactionDto,
+  CreateRefundDto,
+  TransactionType,
+  TransactionStatus,
+  OrderStatus,
+  RefundStatus,
+  PaymentMethodData,
+} from '../types/database.types';
 
 export class AuthorizeNetService {
   private apiClient: any;
+  private webhookService: WebhookService;
 
   constructor() {
+    this.webhookService = new WebhookService();
     this.apiClient = new AuthorizeNet.APIContracts.MerchantAuthenticationType();
     this.apiClient.setName(config.authNet.apiLoginId);
     this.apiClient.setTransactionKey(config.authNet.transactionKey);
@@ -56,7 +75,7 @@ export class AuthorizeNetService {
 
   private createCustomerInfo(customerInfo: any): any {
     const customer = new AuthorizeNet.APIContracts.CustomerDataType();
-    customer.setId(uuidv4());
+    customer.setId(uuidv4().replace(/-/g, '').substring(0, 20));
     customer.setEmail(customerInfo.email);
 
     if (customerInfo.address) {
@@ -76,6 +95,138 @@ export class AuthorizeNetService {
     return { customer, billTo: null };
   }
 
+  /**
+   * Find existing customer by email or create a new one in DB
+   */
+  private async findOrCreateCustomer(customerInfo: any, req?: Request): Promise<string> {
+    try {
+      const existingCustomer = await customerRepository.findByEmail(customerInfo.email, req);
+
+      if (existingCustomer) {
+        return existingCustomer.id;
+      }
+
+      const customerData: CreateCustomerDto = {
+        firstName: customerInfo.firstName || 'Unknown',
+        lastName: customerInfo.lastName || 'Customer',
+        email: customerInfo.email || `customer-${Date.now()}@example.com`,
+        phone: customerInfo.phone,
+        address: customerInfo.address,
+        metadata: { source: 'authorize_net_payment' },
+      };
+
+      const newCustomer = await customerRepository.create(customerData, req);
+      return newCustomer.id;
+    } catch (error) {
+      logger.error('Failed to find or create customer', 'payment', 'findOrCreateCustomer', req, {
+        error: error instanceof Error ? error.message : 'Unknown error',
+      });
+      throw error;
+    }
+  }
+
+  /**
+   * Build PaymentMethodData for DB persistence
+   */
+  private buildPaymentMethodData(paymentMethod: any): PaymentMethodData {
+    if (paymentMethod.type === 'credit_card') {
+      const cardNumber = paymentMethod.cardNumber || '';
+      return {
+        type: 'credit_card',
+        last4: cardNumber.slice(-4),
+        brand: this.getBrandFromCardNumber(cardNumber),
+        expirationMonth: paymentMethod.expirationDate ? parseInt(paymentMethod.expirationDate.substring(0, 2)) : undefined,
+        expirationYear: paymentMethod.expirationDate ? parseInt('20' + paymentMethod.expirationDate.substring(2, 4)) : undefined,
+      };
+    }
+    return {
+      type: 'bank_account',
+      last4: paymentMethod.accountNumber?.slice(-4),
+      bankName: paymentMethod.bankName,
+      accountType: paymentMethod.accountType,
+    };
+  }
+
+  private getBrandFromCardNumber(cardNumber: string): string {
+    if (!cardNumber) return 'Unknown';
+    const first = cardNumber.charAt(0);
+    const firstTwo = cardNumber.substring(0, 2);
+    if (first === '4') return 'Visa';
+    if (['51', '52', '53', '54', '55'].includes(firstTwo)) return 'Mastercard';
+    if (['34', '37'].includes(firstTwo)) return 'American Express';
+    if (cardNumber.substring(0, 4) === '6011') return 'Discover';
+    return 'Unknown';
+  }
+
+  /**
+   * Persist transaction to database (best-effort, doesn't block payment flow)
+   */
+  private async persistTransaction(
+    paymentData: { customerInfo: any; amount: number; currency?: string; description?: string; orderId?: string; metadata?: any; paymentMethod: any },
+    transactionId: string,
+    authCode: string,
+    type: TransactionType,
+    status: TransactionStatus,
+    responseMessage: string,
+    req?: Request
+  ): Promise<{ orderId: string; customerId: string } | null> {
+    try {
+      const customerId = await this.findOrCreateCustomer(paymentData.customerInfo, req);
+
+      const orderData: CreateOrderDto = {
+        customerId,
+        amount: paymentData.amount,
+        currency: paymentData.currency || 'USD',
+        description: paymentData.description || 'Authorize.Net payment',
+        metadata: paymentData.metadata || {},
+        correlationId: req?.tracing?.correlationId,
+      };
+      const order = await orderRepository.create(orderData, req);
+
+      const transactionData: CreateTransactionDto = {
+        orderId: order.id,
+        transactionId,
+        type,
+        amount: paymentData.amount,
+        currency: paymentData.currency || 'USD',
+        status,
+        authCode,
+        responseCode: '1',
+        responseMessage,
+        gatewayResponse: { service: 'authorize.net', environment: config.authNet.environment },
+        paymentMethod: this.buildPaymentMethodData(paymentData.paymentMethod),
+        processorResponse: { service: 'authorize.net', timestamp: new Date().toISOString() },
+        correlationId: req?.tracing?.correlationId,
+        requestId: req?.tracing?.requestId,
+      };
+      await transactionRepository.create(transactionData, req);
+
+      // Update order status based on transaction result
+      const orderStatusMap: Record<string, OrderStatus> = {
+        [TransactionStatus.SUCCEEDED]: OrderStatus.COMPLETED,
+        [TransactionStatus.AUTHORIZED]: OrderStatus.PROCESSING,
+        [TransactionStatus.CAPTURED]: OrderStatus.COMPLETED,
+        [TransactionStatus.FAILED]: OrderStatus.FAILED,
+        [TransactionStatus.VOIDED]: OrderStatus.CANCELLED,
+        [TransactionStatus.REFUNDED]: OrderStatus.REFUNDED,
+      };
+      const newOrderStatus = orderStatusMap[status] || OrderStatus.PROCESSING;
+      await orderRepository.update(order.id, { status: newOrderStatus }, req);
+
+      logger.info('Transaction persisted to database', 'payment', 'persistTransaction', req, {
+        transactionId, orderId: order.id, type, status, orderStatus: newOrderStatus,
+      });
+
+      return { orderId: order.id, customerId };
+    } catch (dbError) {
+      logger.error('Failed to persist transaction to database (non-blocking)', 'payment', 'persistTransaction', req, {
+        error: dbError instanceof Error ? dbError.message : 'Unknown error',
+        transactionId,
+      });
+      return null;
+    }
+  }
+
   async processPayment(paymentData: PaymentRequest, req?: Request): Promise<PaymentResponse> {
     const callId = logger.startServiceCall('payment', 'processPayment', req, {
       amount: paymentData.amount,
@@ -93,7 +244,6 @@ export class AuthorizeNetService {
       const transactionRequestType = new AuthorizeNet.APIContracts.TransactionRequestType();
       transactionRequestType.setTransactionType('authCaptureTransaction');
       transactionRequestType.setAmount(paymentData.amount);
-      transactionRequestType.setMerchantDescriptor(paymentData.description || 'Payment Processing');
 
       // Set payment method
       const payment = new AuthorizeNet.APIContracts.PaymentType();
@@ -112,17 +262,17 @@ export class AuthorizeNetService {
       }
 
       // Set order information
+      const order = new AuthorizeNet.APIContracts.OrderType();
       if (paymentData.orderId) {
-        const order = new AuthorizeNet.APIContracts.OrderType();
         order.setInvoiceNumber(paymentData.orderId);
-        order.setDescription(paymentData.description || 'Payment');
-        transactionRequestType.setOrder(order);
       }
+      order.setDescription((paymentData.description || 'Payment').substring(0, 255));
+      transactionRequestType.setOrder(order);
 
       const createRequest = this.createTransactionRequest();
       createRequest.setTransactionRequest(transactionRequestType);
 
-      const ctrl = new AuthorizeNet.APIControllers.CreateTransactionController(createRequest);
+      const ctrl = new AuthorizeNet.APIControllers.CreateTransactionController(createRequest.getJSON());
       
       // SDK defaults to sandbox, only set environment for production
       if (config.authNet.environment === 'production') {
@@ -148,6 +298,38 @@ export class AuthorizeNetService {
                 timestamp: new Date(),
                 metadata: paymentData.metadata,
               };
+
+              // Persist to database (non-blocking) and emit events
+              this.persistTransaction(
+                paymentData, paymentResponse.transactionId, paymentResponse.authCode || '',
+                TransactionType.PURCHASE, TransactionStatus.SUCCEEDED,
+                paymentResponse.message, req
+              ).then((persistResult) => {
+                // Emit to webhook service (in-process, delivers to registered endpoints)
+                this.webhookService.emitEvent('payment.succeeded', {
+                  payment: {
+                    id: paymentResponse.transactionId,
+                    amount: paymentData.amount,
+                    currency: paymentData.currency || 'USD',
+                    status: 'succeeded',
+                    customerId: persistResult?.customerId,
+                  },
+                  transaction: {
+                    id: uuidv4(),
+                    orderId: persistResult?.orderId || '',
+                    transactionId: paymentResponse.transactionId,
+                    amount: paymentData.amount,
+                    currency: paymentData.currency || 'USD',
+                    status: 'succeeded',
+                    type: 'purchase',
+                    authCode: paymentResponse.authCode,
+                  },
+                }).catch((err) => {
+                  logger.error('Failed to emit webhook event', 'payment', 'processPayment', req, {
+                    error: err instanceof Error ? err.message : 'Unknown error',
+                  });
+                });
+              }).catch(() => {});
 
               logger.endServiceCall(callId, true, req, undefined, {
                 transactionId: paymentResponse.transactionId,
@@ -220,7 +402,6 @@ export class AuthorizeNetService {
       const transactionRequestType = new AuthorizeNet.APIContracts.TransactionRequestType();
       transactionRequestType.setTransactionType('authOnlyTransaction');
       transactionRequestType.setAmount(authData.amount);
-      transactionRequestType.setMerchantDescriptor(authData.description || 'Payment Authorization');
 
       // Set payment method
       const payment = new AuthorizeNet.APIContracts.PaymentType();
@@ -241,9 +422,8 @@ export class AuthorizeNetService {
       const createRequest = this.createTransactionRequest();
       createRequest.setTransactionRequest(transactionRequestType);
 
-      const ctrl = new AuthorizeNet.APIControllers.CreateTransactionController(createRequest);
+      const ctrl = new AuthorizeNet.APIControllers.CreateTransactionController(createRequest.getJSON());
       
-      // SDK defaults to sandbox, only set environment for production
       if (config.authNet.environment === 'production') {
         ctrl.setEnvironment(AuthorizeNet.Constants.endpoint.production);
       }
@@ -267,13 +447,40 @@ export class AuthorizeNetService {
                 timestamp: new Date(),
               };
 
+              // Persist to database (non-blocking) and emit events
+              this.persistTransaction(
+                authData, authResponse.transactionId, authResponse.authCode || '',
+                TransactionType.AUTHORIZATION, TransactionStatus.AUTHORIZED,
+                authResponse.message, req
+              ).then((persistResult) => {
+                this.webhookService.emitEvent('payment.succeeded', {
+                  payment: {
+                    id: authResponse.transactionId,
+                    amount: authData.amount,
+                    currency: authData.currency || 'USD',
+                    status: 'authorized',
+                    customerId: persistResult?.customerId,
+                  },
+                  transaction: {
+                    id: uuidv4(),
+                    orderId: persistResult?.orderId || '',
+                    transactionId: authResponse.transactionId,
+                    amount: authData.amount,
+                    currency: authData.currency || 'USD',
+                    status: 'authorized',
+                    type: 'authorize',
+                    authCode: authResponse.authCode,
+                  },
+                }).catch(() => {});
+              }).catch(() => {});
+
               logger.endServiceCall(callId, true, req, undefined, {
                 transactionId: authResponse.transactionId,
                 authCode: authResponse.authCode,
                 responseCode: authResponse.responseCode,
               });
 
-              logger.logPayment('authorize', authData.amount, 'USD', true, req, {
+              logger.logPayment('authorize', authData.amount, authData.currency || 'USD', true, req, {
                 transactionId: authResponse.transactionId,
                 orderId: authData.orderId,
                 authCode: authResponse.authCode,
@@ -286,7 +493,7 @@ export class AuthorizeNetService {
                 : 'Authorization failed';
 
               logger.endServiceCall(callId, false, req, errorMessage);
-              logger.logPayment('authorize', authData.amount, 'USD', false, req, {
+              logger.logPayment('authorize', authData.amount, authData.currency || 'USD', false, req, {
                 error: errorMessage,
                 orderId: authData.orderId,
               });
@@ -297,7 +504,7 @@ export class AuthorizeNetService {
             const errorMessage = response.getMessages().getMessage()[0].getText();
             
             logger.endServiceCall(callId, false, req, errorMessage);
-            logger.logPayment('authorize', authData.amount, 'USD', false, req, {
+            logger.logPayment('authorize', authData.amount, authData.currency || 'USD', false, req, {
               error: errorMessage,
               orderId: authData.orderId,
             });
@@ -310,7 +517,7 @@ export class AuthorizeNetService {
       const errorMessage = error instanceof Error ? error.message : 'Unknown error';
       
       logger.endServiceCall(callId, false, req, errorMessage);
-      logger.logPayment('authorize', authData.amount, 'USD', false, req, {
+      logger.logPayment('authorize', authData.amount, authData.currency || 'USD', false, req, {
         error: errorMessage,
         orderId: authData.orderId,
       });
@@ -346,9 +553,8 @@ export class AuthorizeNetService {
       const createRequest = this.createTransactionRequest();
       createRequest.setTransactionRequest(transactionRequestType);
 
-      const ctrl = new AuthorizeNet.APIControllers.CreateTransactionController(createRequest);
+      const ctrl = new AuthorizeNet.APIControllers.CreateTransactionController(createRequest.getJSON());
       
-      // SDK defaults to sandbox, only set environment for production
       if (config.authNet.environment === 'production') {
         ctrl.setEnvironment(AuthorizeNet.Constants.endpoint.production);
       }
@@ -372,6 +578,22 @@ export class AuthorizeNetService {
                 timestamp: new Date(),
               };
 
+              // Update transaction status in DB (non-blocking)
+              this.updateTransactionInDb(captureData.transactionId, TransactionStatus.CAPTURED, req).catch(() => {});
+
+              // Emit captured webhook
+              this.webhookService.emitEvent('payment.captured', {
+                transaction: {
+                  id: uuidv4(),
+                  orderId: '',
+                  transactionId: captureResponse.transactionId,
+                  amount: captureData.amount || 0,
+                  status: 'captured',
+                  type: 'capture',
+                  authCode: captureResponse.authCode,
+                },
+              }).catch(() => {});
+
               logger.endServiceCall(callId, true, req, undefined, {
                 transactionId: captureResponse.transactionId,
                 authCode: captureResponse.authCode,
@@ -391,40 +613,19 @@ export class AuthorizeNetService {
                 : 'Capture failed';
 
               logger.endServiceCall(callId, false, req, errorMessage);
-              logger.logPayment('capture', captureData.amount || 0, 'USD', false, req, {
-                error: errorMessage,
-                originalTransactionId: captureData.transactionId,
-              });
-
               reject(new AppError(errorMessage, 400, PaymentErrorCodes.CAPTURE_FAILED));
             }
           } else {
             const errorMessage = response.getMessages().getMessage()[0].getText();
-            
             logger.endServiceCall(callId, false, req, errorMessage);
-            logger.logPayment('capture', captureData.amount || 0, 'USD', false, req, {
-              error: errorMessage,
-              originalTransactionId: captureData.transactionId,
-            });
-
             reject(new AppError(errorMessage, 400, PaymentErrorCodes.API_ERROR));
           }
         });
       });
     } catch (error) {
       const errorMessage = error instanceof Error ? error.message : 'Unknown error';
-      
       logger.endServiceCall(callId, false, req, errorMessage);
-      logger.logPayment('capture', captureData.amount || 0, 'USD', false, req, {
-        error: errorMessage,
-        originalTransactionId: captureData.transactionId,
-      });
-      
-      throw new AppError(
-        'Payment capture failed',
-        500,
-        PaymentErrorCodes.CAPTURE_FAILED
-      );
+      throw new AppError('Payment capture failed', 500, PaymentErrorCodes.CAPTURE_FAILED);
     }
   }
 
@@ -461,9 +662,8 @@ export class AuthorizeNetService {
       const createRequest = this.createTransactionRequest();
       createRequest.setTransactionRequest(transactionRequestType);
 
-      const ctrl = new AuthorizeNet.APIControllers.CreateTransactionController(createRequest);
+      const ctrl = new AuthorizeNet.APIControllers.CreateTransactionController(createRequest.getJSON());
       
-      // SDK defaults to sandbox, only set environment for production
       if (config.authNet.environment === 'production') {
         ctrl.setEnvironment(AuthorizeNet.Constants.endpoint.production);
       }
@@ -487,17 +687,31 @@ export class AuthorizeNetService {
                 timestamp: new Date(),
               };
 
+              // Persist refund to DB (non-blocking)
+              this.persistRefundToDb(
+                refundData.transactionId, refundResponse.transactionId,
+                refundData.amount || 0, refundData.reason, req
+              ).catch(() => {});
+
+              // Emit refunded webhook
+              this.webhookService.emitEvent('payment.refunded', {
+                refund: {
+                  id: uuidv4(),
+                  transactionId: refundData.transactionId,
+                  amount: refundData.amount || 0,
+                  reason: refundData.reason,
+                  status: 'succeeded',
+                },
+              }).catch(() => {});
+
               logger.endServiceCall(callId, true, req, undefined, {
                 transactionId: refundResponse.transactionId,
-                authCode: refundResponse.authCode,
-                responseCode: refundResponse.responseCode,
               });
 
               logger.logPayment('refund', refundData.amount || 0, 'USD', true, req, {
                 transactionId: refundResponse.transactionId,
                 originalTransactionId: refundData.transactionId,
                 reason: refundData.reason,
-                authCode: refundResponse.authCode,
               });
 
               resolve(refundResponse);
@@ -507,43 +721,19 @@ export class AuthorizeNetService {
                 : 'Refund failed';
 
               logger.endServiceCall(callId, false, req, errorMessage);
-              logger.logPayment('refund', refundData.amount || 0, 'USD', false, req, {
-                error: errorMessage,
-                originalTransactionId: refundData.transactionId,
-                reason: refundData.reason,
-              });
-
               reject(new AppError(errorMessage, 400, PaymentErrorCodes.REFUND_FAILED));
             }
           } else {
             const errorMessage = response.getMessages().getMessage()[0].getText();
-            
             logger.endServiceCall(callId, false, req, errorMessage);
-            logger.logPayment('refund', refundData.amount || 0, 'USD', false, req, {
-              error: errorMessage,
-              originalTransactionId: refundData.transactionId,
-              reason: refundData.reason,
-            });
-
             reject(new AppError(errorMessage, 400, PaymentErrorCodes.API_ERROR));
           }
         });
       });
     } catch (error) {
       const errorMessage = error instanceof Error ? error.message : 'Unknown error';
-      
       logger.endServiceCall(callId, false, req, errorMessage);
-      logger.logPayment('refund', refundData.amount || 0, 'USD', false, req, {
-        error: errorMessage,
-        originalTransactionId: refundData.transactionId,
-        reason: refundData.reason,
-      });
-      
-      throw new AppError(
-        'Refund processing failed',
-        500,
-        PaymentErrorCodes.REFUND_FAILED
-      );
+      throw new AppError('Refund processing failed', 500, PaymentErrorCodes.REFUND_FAILED);
     }
   }
 
@@ -566,9 +756,8 @@ export class AuthorizeNetService {
       const createRequest = this.createTransactionRequest();
       createRequest.setTransactionRequest(transactionRequestType);
 
-      const ctrl = new AuthorizeNet.APIControllers.CreateTransactionController(createRequest);
+      const ctrl = new AuthorizeNet.APIControllers.CreateTransactionController(createRequest.getJSON());
       
-      // SDK defaults to sandbox, only set environment for production
       if (config.authNet.environment === 'production') {
         ctrl.setEnvironment(AuthorizeNet.Constants.endpoint.production);
       }
@@ -592,17 +781,29 @@ export class AuthorizeNetService {
                 timestamp: new Date(),
               };
 
+              // Update transaction status in DB (non-blocking)
+              this.updateTransactionInDb(voidData.transactionId, TransactionStatus.VOIDED, req).catch(() => {});
+
+              // Emit voided webhook
+              this.webhookService.emitEvent('payment.voided', {
+                transaction: {
+                  id: uuidv4(),
+                  orderId: '',
+                  transactionId: voidResponse.transactionId,
+                  amount: 0,
+                  status: 'voided',
+                  type: 'void',
+                },
+              }).catch(() => {});
+
               logger.endServiceCall(callId, true, req, undefined, {
                 transactionId: voidResponse.transactionId,
-                authCode: voidResponse.authCode,
-                responseCode: voidResponse.responseCode,
               });
 
               logger.logPayment('void', 0, 'USD', true, req, {
                 transactionId: voidResponse.transactionId,
                 originalTransactionId: voidData.transactionId,
                 reason: voidData.reason,
-                authCode: voidResponse.authCode,
               });
 
               resolve(voidResponse);
@@ -612,43 +813,75 @@ export class AuthorizeNetService {
                 : 'Void failed';
 
               logger.endServiceCall(callId, false, req, errorMessage);
-              logger.logPayment('void', 0, 'USD', false, req, {
-                error: errorMessage,
-                originalTransactionId: voidData.transactionId,
-                reason: voidData.reason,
-              });
-
               reject(new AppError(errorMessage, 400, PaymentErrorCodes.VOID_FAILED));
             }
           } else {
             const errorMessage = response.getMessages().getMessage()[0].getText();
-            
             logger.endServiceCall(callId, false, req, errorMessage);
-            logger.logPayment('void', 0, 'USD', false, req, {
-              error: errorMessage,
-              originalTransactionId: voidData.transactionId,
-              reason: voidData.reason,
-            });
-
             reject(new AppError(errorMessage, 400, PaymentErrorCodes.API_ERROR));
           }
         });
       });
     } catch (error) {
       const errorMessage = error instanceof Error ? error.message : 'Unknown error';
-      
       logger.endServiceCall(callId, false, req, errorMessage);
-      logger.logPayment('void', 0, 'USD', false, req, {
-        error: errorMessage,
-        originalTransactionId: voidData.transactionId,
-        reason: voidData.reason,
+      throw new AppError('Payment void failed', 500, PaymentErrorCodes.VOID_FAILED);
+    }
+  }
+
+  /**
+   * Update transaction status in database by external transaction ID
+   */
+  private async updateTransactionInDb(externalTransactionId: string, newStatus: TransactionStatus, req?: Request): Promise<void> {
+    try {
+      const dbTransaction = await transactionRepository.findByTransactionId(externalTransactionId, req);
+      if (dbTransaction) {
+        await transactionRepository.update(dbTransaction.id, { status: newStatus }, req);
+        logger.info('Transaction status updated in DB', 'payment', 'updateTransactionInDb', req, {
+          externalTransactionId, newStatus,
+        });
+      }
+    } catch (error) {
+      logger.error('Failed to update transaction in DB', 'payment', 'updateTransactionInDb', req, {
+        error: error instanceof Error ? error.message : 'Unknown error',
+        externalTransactionId,
       });
-      
-      throw new AppError(
-        'Payment void failed',
-        500,
-        PaymentErrorCodes.VOID_FAILED
-      );
+    }
+  }
+
+  /**
+   * Persist refund record to database
+   */
+  private async persistRefundToDb(
+    originalExternalTxnId: string,
+    refundExternalTxnId: string,
+    amount: number,
+    reason?: string,
+    req?: Request
+  ): Promise<void> {
+    try {
+      const originalTxn = await transactionRepository.findByTransactionId(originalExternalTxnId, req);
+      if (originalTxn) {
+        const refundData: CreateRefundDto = {
+          transactionId: originalTxn.id,
+          originalTransactionId: originalTxn.id,
+          amount: amount || originalTxn.amount,
+          currency: originalTxn.currency || 'USD',
+          reason,
+          status: RefundStatus.SUCCEEDED,
+          refundTransactionId: refundExternalTxnId,
+          correlationId: req?.tracing?.correlationId,
+          requestId: req?.tracing?.requestId,
+        };
+        await refundRepository.create(refundData, req);
+
+        // Update original transaction status
+        await transactionRepository.update(originalTxn.id, { status: TransactionStatus.REFUNDED }, req);
+      }
+    } catch (error) {
+      logger.error('Failed to persist refund to DB', 'payment', 'persistRefundToDb', req, {
+        error: error instanceof Error ? error.message : 'Unknown error',
+      });
     }
   }
 }

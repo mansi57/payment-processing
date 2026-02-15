@@ -331,11 +331,11 @@ class StorageService {
       const now = new Date();
       const expired: string[] = [];
       
-      for (const [key, record] of this.idempotencyKeys.entries()) {
+      this.idempotencyKeys.forEach((record, key) => {
         if (record.expiresAt < now) {
           expired.push(key);
         }
-      }
+      });
       
       expired.forEach(key => this.idempotencyKeys.delete(key));
       

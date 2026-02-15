@@ -4,16 +4,15 @@
  */
 
 import { v4 as uuidv4 } from 'uuid';
-import crypto from 'crypto';
-import axios, { AxiosResponse } from 'axios';
+import * as crypto from 'crypto';
 import storageService from './storageService';
+import { eventEmitter } from './eventEmitter';
 import {
   WebhookEvent,
   WebhookEndpoint,
   WebhookDelivery,
   WebhookEventType,
   WebhookPayload,
-  WebhookRetryConfig,
   WebhookValidationResult,
   EventData,
   CreateWebhookEndpointRequest,
@@ -23,16 +22,10 @@ import {
 import logger from '../utils/logger';
 
 export class WebhookService {
-  private readonly retryConfig: WebhookRetryConfig = {
-    maxAttempts: 3,
-    initialDelaySeconds: 5,
-    maxDelaySeconds: 300,
-    backoffMultiplier: 2,
-    retryDelays: [5, 25, 125] // seconds
-  };
-
   constructor() {
-    this.startDeliveryProcessor();
+    // Webhook delivery is now handled by Bull queue workers
+    // No in-memory polling needed
+    logger.info('WebhookService initialized (Bull queue delivery mode)');
   }
 
   // ============= EVENT MANAGEMENT =============
@@ -317,8 +310,38 @@ export class WebhookService {
         scheduledAt: new Date()
       };
 
+      // Store delivery record locally for status tracking via API
       await storageService.createWebhookDelivery(delivery);
-      pendingCount++;
+
+      // Push to Bull queue for async delivery by the queue worker
+      try {
+        await eventEmitter.emitWebhookDelivery(
+          delivery,
+          event.type,
+          endpoint.url
+        );
+        pendingCount++;
+
+        logger.info('Webhook delivery job enqueued to Bull', {
+          deliveryId: delivery.id,
+          endpointId: endpoint.id,
+          endpointUrl: endpoint.url,
+          eventType: event.type,
+        });
+      } catch (queueError) {
+        logger.error('Failed to enqueue webhook delivery to Bull', {
+          deliveryId: delivery.id,
+          endpointId: endpoint.id,
+          error: queueError instanceof Error ? queueError.message : 'Unknown error',
+        });
+
+        // Update delivery as failed if queue push fails
+        await storageService.updateWebhookDelivery(delivery.id, {
+          status: 'failed',
+          errorMessage: 'Failed to enqueue to Bull queue',
+          completedAt: new Date(),
+        });
+      }
     }
 
     // Update event with pending webhook count
@@ -328,6 +351,13 @@ export class WebhookService {
         eventRecord.pendingWebhooks = pendingCount;
         await storageService.createWebhookEvent(eventRecord);
       }
+
+      logger.info('Webhook deliveries enqueued via Bull', {
+        eventId: event.id,
+        eventType: event.type,
+        endpointsMatched: matchingEndpoints.length,
+        jobsEnqueued: pendingCount,
+      });
     }
   }
 
@@ -360,146 +390,9 @@ export class WebhookService {
     };
   }
 
-  private async processDelivery(delivery: WebhookDelivery): Promise<void> {
-    try {
-      const endpoint = await storageService.getWebhookEndpoint(delivery.endpointId);
-      if (!endpoint) {
-        logger.error('Endpoint not found for delivery', { 
-          deliveryId: delivery.id,
-          endpointId: delivery.endpointId 
-        });
-        return;
-      }
-
-      await storageService.updateWebhookDelivery(delivery.id, {
-        status: 'pending',
-        attemptedAt: new Date()
-      });
-
-      const startTime = Date.now();
-      let response: AxiosResponse;
-      
-      try {
-        response = await axios.post(endpoint.url, delivery.requestBody, {
-          headers: delivery.requestHeaders,
-          timeout: 30000, // 30 seconds
-          validateStatus: (status) => status < 500 // Only retry on 5xx errors
-        });
-
-        const duration = Date.now() - startTime;
-
-        if (response.status >= 200 && response.status < 300) {
-          // Success
-          await storageService.updateWebhookDelivery(delivery.id, {
-            status: 'succeeded',
-            httpStatusCode: response.status,
-            responseBody: JSON.stringify(response.data).substring(0, 1000), // Limit size
-            responseHeaders: response.headers as Record<string, string>,
-            completedAt: new Date(),
-            duration
-          });
-
-          await storageService.updateWebhookEndpoint(endpoint.id, {
-            lastSuccessfulAt: new Date(),
-            failureCount: 0
-          });
-
-          logger.info('Webhook delivery succeeded', {
-            deliveryId: delivery.id,
-            endpointId: endpoint.id,
-            httpStatus: response.status,
-            duration
-          });
-        } else {
-          // HTTP error (4xx)
-          throw new Error(`HTTP ${response.status}: ${response.statusText}`);
-        }
-      } catch (httpError: any) {
-        const duration = Date.now() - startTime;
-        const isRetryable = this.isRetryableError(httpError);
-        const shouldRetry = isRetryable && delivery.attemptNumber < this.retryConfig.maxAttempts;
-
-        await storageService.updateWebhookDelivery(delivery.id, {
-          status: shouldRetry ? 'retrying' : 'failed',
-          httpStatusCode: httpError.response?.status,
-          responseBody: httpError.response?.data ? JSON.stringify(httpError.response.data).substring(0, 1000) : httpError.message,
-          errorMessage: httpError.message,
-          completedAt: shouldRetry ? undefined : new Date(),
-          nextRetryAt: shouldRetry ? this.calculateNextRetry(delivery.attemptNumber) : undefined,
-          duration
-        });
-
-        if (shouldRetry) {
-          logger.warn('Webhook delivery failed, will retry', {
-            deliveryId: delivery.id,
-            endpointId: endpoint.id,
-            attempt: delivery.attemptNumber,
-            error: httpError.message,
-            nextRetry: this.calculateNextRetry(delivery.attemptNumber)
-          });
-        } else {
-          logger.error('Webhook delivery failed permanently', {
-            deliveryId: delivery.id,
-            endpointId: endpoint.id,
-            attempt: delivery.attemptNumber,
-            error: httpError.message
-          });
-
-          // Update endpoint failure count
-          await storageService.updateWebhookEndpoint(endpoint.id, {
-            failureCount: endpoint.failureCount + 1,
-            lastAttemptAt: new Date()
-          });
-        }
-      }
-    } catch (error) {
-      logger.error('Error processing webhook delivery', {
-        deliveryId: delivery.id,
-        error: error instanceof Error ? error.message : 'Unknown error'
-      });
-    }
-  }
-
-  private isRetryableError(error: any): boolean {
-    // Retry on network errors, timeouts, and 5xx HTTP errors
-    if (error.code === 'ECONNABORTED' || error.code === 'ENOTFOUND' || error.code === 'ECONNRESET') {
-      return true;
-    }
-    
-    if (error.response?.status >= 500) {
-      return true;
-    }
-    
-    return false;
-  }
-
-  private calculateNextRetry(attemptNumber: number): Date {
-    const delaySeconds = this.retryConfig.retryDelays[Math.min(attemptNumber - 1, this.retryConfig.retryDelays.length - 1)];
-    const nextRetry = new Date();
-    nextRetry.setSeconds(nextRetry.getSeconds() + delaySeconds);
-    return nextRetry;
-  }
-
-  private startDeliveryProcessor(): void {
-    // Process pending deliveries every 30 seconds
-    setInterval(async () => {
-      try {
-        const pendingDeliveries = await storageService.getPendingDeliveries();
-        
-        for (const delivery of pendingDeliveries) {
-          await this.processDelivery(delivery);
-          // Small delay between deliveries
-          await new Promise(resolve => setTimeout(resolve, 100));
-        }
-      } catch (error) {
-        logger.error('Error in delivery processor', {
-          error: error instanceof Error ? error.message : 'Unknown error'
-        });
-      }
-    }, 30 * 1000); // 30 seconds
-
-    logger.info('Webhook delivery processor started');
-  }
+  // Webhook delivery is now handled by Bull queue workers.
+  // The queue worker's webhookProcessor.processWebhookDelivery() makes the HTTP POST.
+  // Retries are handled by Bull's built-in exponential backoff.
 
   private sanitizeEventData(data: EventData): any {
     // Remove sensitive information from event data

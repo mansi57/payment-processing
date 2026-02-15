@@ -83,16 +83,17 @@ services:
       DB_CONNECTION_TIMEOUT: 60000
       DB_IDLE_TIMEOUT: 10000
       
-      # Redis/Queue Configuration (simplified - using memory queues)
-      QUEUE_DRIVER: memory
+      # Redis/Queue Configuration
+      QUEUE_DRIVER: redis
       REDIS_HOST: redis
       REDIS_PORT: 6379
       REDIS_PASSWORD: ${REDIS_PASSWORD:-redis_secure_2024}
       
       # Payment Gateway Configuration (Sandbox)
-      AUTHORIZE_NET_API_LOGIN_ID: ${AUTHORIZE_NET_API_LOGIN_ID:-sandbox_login}
-      AUTHORIZE_NET_TRANSACTION_KEY: ${AUTHORIZE_NET_TRANSACTION_KEY:-sandbox_key}
-      AUTHORIZE_NET_ENVIRONMENT: sandbox
+      AUTHNET_API_LOGIN_ID: ${AUTHNET_API_LOGIN_ID:-5Tav93DC}
+      AUTHNET_TRANSACTION_KEY: ${AUTHNET_TRANSACTION_KEY:-9z8hUZ9N8ra6PJ4k}
+      AUTHNET_ENVIRONMENT: sandbox
+      USE_MOCK_PAYMENT_SERVICE: ${USE_MOCK_PAYMENT_SERVICE:-false}
       
       # Security Configuration
       API_KEY: ${API_KEY:-dev_api_key_12345}
@@ -132,9 +133,62 @@ services:
         max-size: "10m"
         max-file: "5"
 
-  # Queue Worker (Background Jobs) - DISABLED: queue modules removed
-  # queue-worker:
-  #   [Service disabled - queue system modules were removed to resolve TypeScript errors]
+  # Queue Worker (Background Jobs)
+  queue-worker:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      target: production
+    container_name: payment_processing_queue_worker
+    restart: unless-stopped
+    environment:
+      # Server Configuration
+      NODE_ENV: production
+      
+      # Database Configuration
+      DB_HOST: postgres
+      DB_PORT: 5432
+      DB_NAME: payment_processing
+      DB_USERNAME: postgres
+      DB_PASSWORD: ${DB_PASSWORD:-payment_secure_2024}
+      DB_SSL: false
+      DB_MAX_CONNECTIONS: 20
+      DB_CONNECTION_TIMEOUT: 60000
+      DB_IDLE_TIMEOUT: 10000
+      
+      # Redis/Queue Configuration
+      QUEUE_DRIVER: redis
+      REDIS_HOST: redis
+      REDIS_PORT: 6379
+      REDIS_PASSWORD: ${REDIS_PASSWORD:-redis_secure_2024}
+      
+      # Security Configuration
+      JWT_SECRET: ${JWT_SECRET:-jwt_secret_key_2024}
+      
+      # Application Configuration
+      LOG_LEVEL: info
+      
+    command: ["node", "dist/workers/queue-worker.js"]
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    volumes:
+      - app_logs:/app/logs
+    networks:
+      - payment_network
+    healthcheck:
+      test: ["CMD", "node", "-e", "process.exit(0)"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
 
   # Optional: Admin Dashboard (for monitoring)
   admin-dashboard:

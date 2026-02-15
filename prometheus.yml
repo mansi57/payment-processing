@@ -29,11 +29,11 @@ scrape_configs:
     scrape_interval: 30s
     scrape_timeout: 10s
 
-  # Node.js application metrics
+  # Node.js application metrics (same endpoint, different job for filtering)
   - job_name: 'node-app-metrics'
     static_configs:
       - targets: ['payment-api:3000']
-    metrics_path: '/api/metrics'
+    metrics_path: '/metrics'
     scrape_interval: 15s
 
   # Queue Worker metrics

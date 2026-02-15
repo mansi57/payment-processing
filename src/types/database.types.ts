@@ -72,7 +72,7 @@ export interface Transaction {
 
 export enum TransactionType {
   PURCHASE = 'purchase',
-  AUTHORIZE = 'authorize',
+  AUTHORIZATION = 'authorize',
   CAPTURE = 'capture',
   VOID = 'void',
   REFUND = 'refund'
@@ -81,10 +81,14 @@ export enum TransactionType {
 export enum TransactionStatus {
   PENDING = 'pending',
   PROCESSING = 'processing',
+  AUTHORIZED = 'authorized',
+  CAPTURED = 'captured',
   SUCCEEDED = 'succeeded',
   FAILED = 'failed',
   CANCELLED = 'cancelled',
-  EXPIRED = 'expired'
+  EXPIRED = 'expired',
+  VOIDED = 'voided',
+  REFUNDED = 'refunded'
 }
 
 export interface PaymentMethodData {
@@ -160,6 +164,7 @@ export interface OrderFilters {
 
 export interface TransactionFilters {
   orderId?: string;
+  transactionId?: string; // External payment processor transaction ID
   type?: TransactionType;
   status?: TransactionStatus;
   minAmount?: number;
