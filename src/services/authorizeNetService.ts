@@ -1,3 +1,4 @@
+import '../utils/patchAuthorizeNet';
 import * as AuthorizeNet from 'authorizenet';
 import { v4 as uuidv4 } from 'uuid';
 import { Request } from 'express';
@@ -17,6 +18,8 @@ import { customerRepository } from '../repositories/customerRepository';
 import { orderRepository } from '../repositories/orderRepository';
 import { transactionRepository } from '../repositories/transactionRepository';
 import { refundRepository } from '../repositories/refundRepository';
+import { eventEmitter } from './eventEmitter';
+import { WebhookService } from './webhookService';
 import {
   CreateCustomerDto,
   CreateOrderDto,
@@ -24,14 +27,17 @@ import {
   CreateRefundDto,
   TransactionType,
   TransactionStatus,
+  OrderStatus,
   RefundStatus,
   PaymentMethodData,
 } from '../types/database.types';
 
 export class AuthorizeNetService {
   private apiClient: any;
+  private webhookService: WebhookService;
 
   constructor() {
+    this.webhookService = new WebhookService();
     this.apiClient = new AuthorizeNet.APIContracts.MerchantAuthenticationType();
     this.apiClient.setName(config.authNet.apiLoginId);
     this.apiClient.setTransactionKey(config.authNet.transactionKey);
@@ -70,7 +76,7 @@ export class AuthorizeNetService {
 
   private createCustomerInfo(customerInfo: any): any {
     const customer = new AuthorizeNet.APIContracts.CustomerDataType();
-    customer.setId(uuidv4());
+    customer.setId(uuidv4().replace(/-/g, '').substring(0, 20));
     customer.setEmail(customerInfo.email);
 
     if (customerInfo.address) {
@@ -164,7 +170,7 @@ export class AuthorizeNetService {
     status: TransactionStatus,
     responseMessage: string,
     req?: Request
-  ): Promise<void> {
+  ): Promise<{ orderId: string; customerId: string } | null> {
     try {
       const customerId = await this.findOrCreateCustomer(paymentData.customerInfo, req);
 
@@ -196,14 +202,29 @@ export class AuthorizeNetService {
       };
       await transactionRepository.create(transactionData, req);
 
+      // Update order status based on transaction result
+      const orderStatusMap: Record<string, OrderStatus> = {
+        [TransactionStatus.SUCCEEDED]: OrderStatus.COMPLETED,
+        [TransactionStatus.AUTHORIZED]: OrderStatus.PROCESSING,
+        [TransactionStatus.CAPTURED]: OrderStatus.COMPLETED,
+        [TransactionStatus.FAILED]: OrderStatus.FAILED,
+        [TransactionStatus.VOIDED]: OrderStatus.CANCELLED,
+        [TransactionStatus.REFUNDED]: OrderStatus.REFUNDED,
+      };
+      const newOrderStatus = orderStatusMap[status] || OrderStatus.PROCESSING;
+      await orderRepository.update(order.id, { status: newOrderStatus }, req);
+
       logger.info('Transaction persisted to database', 'payment', 'persistTransaction', req, {
-        transactionId, orderId: order.id, type, status,
+        transactionId, orderId: order.id, type, status, orderStatus: newOrderStatus,
       });
+
+      return { orderId: order.id, customerId };
     } catch (dbError) {
       logger.error('Failed to persist transaction to database (non-blocking)', 'payment', 'persistTransaction', req, {
         error: dbError instanceof Error ? dbError.message : 'Unknown error',
         transactionId,
       });
+      return null;
     }
   }
 
@@ -252,7 +273,7 @@ export class AuthorizeNetService {
       const createRequest = this.createTransactionRequest();
       createRequest.setTransactionRequest(transactionRequestType);
 
-      const ctrl = new AuthorizeNet.APIControllers.CreateTransactionController(createRequest);
+      const ctrl = new AuthorizeNet.APIControllers.CreateTransactionController(createRequest.getJSON());
       
       // SDK defaults to sandbox, only set environment for production
       if (config.authNet.environment === 'production') {
@@ -279,12 +300,48 @@ export class AuthorizeNetService {
                 metadata: paymentData.metadata,
               };
 
-              // Persist to database (non-blocking)
+              // Persist to database (non-blocking) and emit events
               this.persistTransaction(
                 paymentData, paymentResponse.transactionId, paymentResponse.authCode || '',
                 TransactionType.PURCHASE, TransactionStatus.SUCCEEDED,
                 paymentResponse.message, req
-              ).catch(() => {});
+              ).then((persistResult) => {
+                // Emit to webhook service (in-process, delivers to registered endpoints)
+                this.webhookService.emitEvent('payment.succeeded', {
+                  payment: {
+                    id: paymentResponse.transactionId,
+                    amount: paymentData.amount,
+                    currency: paymentData.currency || 'USD',
+                    status: 'succeeded',
+                    customerId: persistResult?.customerId,
+                  },
+                  transaction: {
+                    id: uuidv4(),
+                    orderId: persistResult?.orderId || '',
+                    transactionId: paymentResponse.transactionId,
+                    amount: paymentData.amount,
+                    currency: paymentData.currency || 'USD',
+                    status: 'succeeded',
+                    type: 'purchase',
+                    authCode: paymentResponse.authCode,
+                  },
+                }).catch((err) => {
+                  logger.error('Failed to emit webhook event', 'payment', 'processPayment', req, {
+                    error: err instanceof Error ? err.message : 'Unknown error',
+                  });
+                });
+                // Emit to Bull queue for async processing (notifications, etc.)
+                eventEmitter.emitPaymentSucceeded({
+                  transactionId: paymentResponse.transactionId,
+                  amount: paymentData.amount,
+                  currency: paymentData.currency || 'USD',
+                  paymentMethod: this.buildPaymentMethodData(paymentData.paymentMethod),
+                  orderId: persistResult?.orderId,
+                  customerId: persistResult?.customerId,
+                  authCode: paymentResponse.authCode,
+                  responseCode: paymentResponse.responseCode,
+                }, undefined, req).catch(() => {});
+              }).catch(() => {});
 
               logger.endServiceCall(callId, true, req, undefined, {
                 transactionId: paymentResponse.transactionId,
@@ -377,7 +434,7 @@ export class AuthorizeNetService {
       const createRequest = this.createTransactionRequest();
       createRequest.setTransactionRequest(transactionRequestType);
 
-      const ctrl = new AuthorizeNet.APIControllers.CreateTransactionController(createRequest);
+      const ctrl = new AuthorizeNet.APIControllers.CreateTransactionController(createRequest.getJSON());
       
       if (config.authNet.environment === 'production') {
         ctrl.setEnvironment(AuthorizeNet.Constants.endpoint.production);
@@ -402,12 +459,42 @@ export class AuthorizeNetService {
                 timestamp: new Date(),
               };
 
-              // Persist to database (non-blocking)
+              // Persist to database (non-blocking) and emit events
               this.persistTransaction(
                 authData, authResponse.transactionId, authResponse.authCode || '',
                 TransactionType.AUTHORIZATION, TransactionStatus.AUTHORIZED,
                 authResponse.message, req
-              ).catch(() => {});
+              ).then((persistResult) => {
+                this.webhookService.emitEvent('payment.succeeded', {
+                  payment: {
+                    id: authResponse.transactionId,
+                    amount: authData.amount,
+                    currency: authData.currency || 'USD',
+                    status: 'authorized',
+                    customerId: persistResult?.customerId,
+                  },
+                  transaction: {
+                    id: uuidv4(),
+                    orderId: persistResult?.orderId || '',
+                    transactionId: authResponse.transactionId,
+                    amount: authData.amount,
+                    currency: authData.currency || 'USD',
+                    status: 'authorized',
+                    type: 'authorize',
+                    authCode: authResponse.authCode,
+                  },
+                }).catch(() => {});
+                eventEmitter.emitPaymentSucceeded({
+                  transactionId: authResponse.transactionId,
+                  amount: authData.amount,
+                  currency: authData.currency || 'USD',
+                  paymentMethod: this.buildPaymentMethodData(authData.paymentMethod),
+                  orderId: persistResult?.orderId,
+                  customerId: persistResult?.customerId,
+                  authCode: authResponse.authCode,
+                  responseCode: authResponse.responseCode,
+                }, undefined, req).catch(() => {});
+              }).catch(() => {});
 
               logger.endServiceCall(callId, true, req, undefined, {
                 transactionId: authResponse.transactionId,
@@ -488,7 +575,7 @@ export class AuthorizeNetService {
       const createRequest = this.createTransactionRequest();
       createRequest.setTransactionRequest(transactionRequestType);
 
-      const ctrl = new AuthorizeNet.APIControllers.CreateTransactionController(createRequest);
+      const ctrl = new AuthorizeNet.APIControllers.CreateTransactionController(createRequest.getJSON());
       
       if (config.authNet.environment === 'production') {
         ctrl.setEnvironment(AuthorizeNet.Constants.endpoint.production);
@@ -515,6 +602,19 @@ export class AuthorizeNetService {
 
               // Update transaction status in DB (non-blocking)
               this.updateTransactionInDb(captureData.transactionId, TransactionStatus.CAPTURED, req).catch(() => {});
+
+              // Emit captured webhook
+              this.webhookService.emitEvent('payment.captured', {
+                transaction: {
+                  id: uuidv4(),
+                  orderId: '',
+                  transactionId: captureResponse.transactionId,
+                  amount: captureData.amount || 0,
+                  status: 'captured',
+                  type: 'capture',
+                  authCode: captureResponse.authCode,
+                },
+              }).catch(() => {});
 
               logger.endServiceCall(callId, true, req, undefined, {
                 transactionId: captureResponse.transactionId,
@@ -584,7 +684,7 @@ export class AuthorizeNetService {
       const createRequest = this.createTransactionRequest();
       createRequest.setTransactionRequest(transactionRequestType);
 
-      const ctrl = new AuthorizeNet.APIControllers.CreateTransactionController(createRequest);
+      const ctrl = new AuthorizeNet.APIControllers.CreateTransactionController(createRequest.getJSON());
       
       if (config.authNet.environment === 'production') {
         ctrl.setEnvironment(AuthorizeNet.Constants.endpoint.production);
@@ -614,6 +714,17 @@ export class AuthorizeNetService {
                 refundData.transactionId, refundResponse.transactionId,
                 refundData.amount || 0, refundData.reason, req
               ).catch(() => {});
+
+              // Emit refunded webhook
+              this.webhookService.emitEvent('payment.refunded', {
+                refund: {
+                  id: uuidv4(),
+                  transactionId: refundData.transactionId,
+                  amount: refundData.amount || 0,
+                  reason: refundData.reason,
+                  status: 'succeeded',
+                },
+              }).catch(() => {});
 
               logger.endServiceCall(callId, true, req, undefined, {
                 transactionId: refundResponse.transactionId,
@@ -667,7 +778,7 @@ export class AuthorizeNetService {
       const createRequest = this.createTransactionRequest();
       createRequest.setTransactionRequest(transactionRequestType);
 
-      const ctrl = new AuthorizeNet.APIControllers.CreateTransactionController(createRequest);
+      const ctrl = new AuthorizeNet.APIControllers.CreateTransactionController(createRequest.getJSON());
       
       if (config.authNet.environment === 'production') {
         ctrl.setEnvironment(AuthorizeNet.Constants.endpoint.production);
@@ -694,6 +805,18 @@ export class AuthorizeNetService {
 
               // Update transaction status in DB (non-blocking)
               this.updateTransactionInDb(voidData.transactionId, TransactionStatus.VOIDED, req).catch(() => {});
+
+              // Emit voided webhook
+              this.webhookService.emitEvent('payment.voided', {
+                transaction: {
+                  id: uuidv4(),
+                  orderId: '',
+                  transactionId: voidResponse.transactionId,
+                  amount: 0,
+                  status: 'voided',
+                  type: 'void',
+                },
+              }).catch(() => {});
 
               logger.endServiceCall(callId, true, req, undefined, {
                 transactionId: voidResponse.transactionId,
